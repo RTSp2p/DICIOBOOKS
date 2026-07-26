@@ -3,6 +3,7 @@ package com.example
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
@@ -63,7 +64,23 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.rememberDrawerState
 
+
+enum class ThemeMode {
+    SYSTEM, LIGHT, DARK
+}
+
 class DictionaryViewModel(application: Application) : AndroidViewModel(application) {
+    private val prefs = application.getSharedPreferences("dictionary_prefs", android.content.Context.MODE_PRIVATE)
+    private val _themeMode = MutableStateFlow(
+        ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
+    )
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+    
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString("theme_mode", mode.name).apply()
+        _themeMode.value = mode
+    }
+
     private val repository = DictionaryRepository()
     private val db = AppDatabase.getDatabase(application)
     private val searchHistoryRepository = SearchHistoryRepository(db.searchHistoryDao())
@@ -138,9 +155,12 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+private var searchJob: kotlinx.coroutines.Job? = null
+
     private fun fetchDefinition(word: String) {
+        searchJob?.cancel()
         _uiState.value = DictionaryUiState.Loading
-        viewModelScope.launch {
+        searchJob = viewModelScope.launch {
             val result = repository.getDefinitionAndSynonyms(word)
             result.onSuccess { data ->
                 _uiState.value = DictionaryUiState.Success(data)
@@ -154,7 +174,9 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
                     )
                 )
             }.onFailure { error ->
-                _uiState.value = DictionaryUiState.Error(error.message ?: "Erro desconhecido")
+                if (error !is kotlinx.coroutines.CancellationException) {
+                    _uiState.value = DictionaryUiState.Error(error.message ?: "Erro desconhecido")
+                }
             }
         }
     }
@@ -170,6 +192,8 @@ sealed class DictionaryUiState {
 class MainActivity : ComponentActivity() {
     private var pendingTextToProcess: String? = null
 
+    private val viewModel: DictionaryViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -178,8 +202,15 @@ class MainActivity : ComponentActivity() {
         handlePendingText()
 
         setContent {
-            MyApplicationTheme {
-                com.example.ui.MainScreen(activity = this@MainActivity)
+            val themeMode by viewModel.themeMode.collectAsState()
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            
+            MyApplicationTheme(darkTheme = darkTheme) {
+                com.example.ui.MainScreen(activity = this@MainActivity, viewModel = viewModel)
             }
         }
     }
