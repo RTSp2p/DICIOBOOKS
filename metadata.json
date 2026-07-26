@@ -1,0 +1,6 @@
+{
+  "name": "Dicionário de Leitura Flutuante",
+  "description": "Aplicativo que intercepta seleções de texto para exibir significado e sinônimos usando a API Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
