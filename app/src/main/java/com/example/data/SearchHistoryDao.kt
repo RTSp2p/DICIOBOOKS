@@ -11,6 +11,9 @@ interface SearchHistoryDao {
     @Query("SELECT * FROM search_history ORDER BY timestamp DESC LIMIT 20")
     fun getRecentSearches(): Flow<List<SearchHistory>>
 
+    @Query("SELECT * FROM search_history WHERE word = :word COLLATE NOCASE LIMIT 1")
+    suspend fun getSearchByWord(word: String): SearchHistory?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSearch(searchHistory: SearchHistory)
 

@@ -233,7 +233,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                         ) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                                shape = RoundedCornerShape(28.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 shadowElevation = 16.dp
                             ) {
@@ -331,17 +331,30 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                         }
                                                     }
                                                     is DictionaryUiState.Error -> {
-                                                        Box(
+                                                        androidx.compose.foundation.layout.Column(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
-                                                                .height(200.dp),
-                                                            contentAlignment = Alignment.Center
+                                                                .padding(24.dp),
+                                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
                                                         ) {
                                                             Text(
                                                                 text = "Erro: ${state.message}",
                                                                 color = MaterialTheme.colorScheme.error,
-                                                                style = MaterialTheme.typography.bodyLarge
+                                                                style = MaterialTheme.typography.bodyLarge,
+                                                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                                                modifier = Modifier.padding(bottom = 16.dp)
                                                             )
+                                                            Button(
+                                                                onClick = {
+                                                                    scope.launch {
+                                                                        isVisible = false
+                                                                        viewModel.hideBottomSheet()
+                                                                    }
+                                                                }
+                                                            ) {
+                                                                Text("Fechar")
+                                                            }
                                                         }
                                                     }
                                                     is DictionaryUiState.Success -> {
