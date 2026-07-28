@@ -21,6 +21,9 @@ import kotlinx.coroutines.delay
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.ui.input.pointer.pointerInput
@@ -88,7 +91,7 @@ fun ProcessingIndicator() {
         }
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Processando tradução...",
+            text = "Pesquisando...",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = animatedAlpha),
             fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
@@ -429,6 +432,34 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                         }
                                     }
                                     
+                                    // Theme toggle button
+                                    IconButton(
+                                        onClick = {
+                                            val nextTheme = when (themeMode) {
+                                                com.example.ThemeMode.SYSTEM -> com.example.ThemeMode.LIGHT
+                                                com.example.ThemeMode.LIGHT -> com.example.ThemeMode.DARK
+                                                com.example.ThemeMode.DARK -> com.example.ThemeMode.SYSTEM
+                                            }
+                                            viewModel.setThemeMode(nextTheme)
+                                        },
+                                        modifier = Modifier
+                                            .align(Alignment.TopStart)
+                                            .padding(top = 12.dp, start = 50.dp)
+                                            .size(36.dp)
+                                    ) {
+                                        val (icon, description) = when (themeMode) {
+                                            com.example.ThemeMode.SYSTEM -> Pair(Icons.Default.BrightnessAuto, "Tema: Sistema")
+                                            com.example.ThemeMode.LIGHT -> Pair(Icons.Default.LightMode, "Tema: Claro")
+                                            com.example.ThemeMode.DARK -> Pair(Icons.Default.DarkMode, "Tema: Escuro")
+                                        }
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = description,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
                                     // Resize handle
                                     Box(
                                         modifier = Modifier
