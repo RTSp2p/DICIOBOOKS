@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
@@ -226,13 +227,24 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                             Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
                         }
                     } else {
+                        val dragOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
+                        val density = LocalDensity.current
+                        val dismissThresholdPx = with(density) { 150.dp.toPx() } // distância do arrasto até fechar ( fecha mais rapido > valor > demora mais)
+
                         AnimatedVisibility(
                             visible = isVisible,
                             enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
                             exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut()
                         ) {
                             Surface(
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 200.dp)
+                                    .graphicsLayer {
+                                        translationX = dragOffsetX.value
+                                        val absX = kotlin.math.abs(dragOffsetX.value)
+                                        alpha = (1f - (absX / (dismissThresholdPx * 2f))).coerceIn(0.15f, 1f)
+                                    },
                                 shape = RoundedCornerShape(28.dp),
                                 color = MaterialTheme.colorScheme.surfaceContainer,
                                 shadowElevation = 16.dp
@@ -252,26 +264,66 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                     .imePadding()
                                                     .verticalScroll(rememberScrollState())
                                             ) {
-                                                // Drag handle mockup
+                                                // Drag handle with horizontal swipe to dismiss gesture and vertical window move
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxWidth()
                                                         .pointerInput(Unit) {
-                                                            detectDragGestures { change, dragAmount ->
-                                                                change.consume()
-                                                                params.y = Math.max(0, params.y - dragAmount.y.toInt())
-                                                                params.x += dragAmount.x.toInt()
-                                                                windowManager?.updateViewLayout(frameLayout, params)
-                                                            }
+                                                            detectDragGestures(
+                                                                onDragEnd = {
+                                                                    val currentOffsetX = dragOffsetX.value
+                                                                    if (kotlin.math.abs(currentOffsetX) > dismissThresholdPx) {
+                                                                        scope.launch {
+                                                                            val targetX = if (currentOffsetX > 0) currentOffsetX + 600f else currentOffsetX - 600f
+                                                                            launch { dragOffsetX.animateTo(targetX, tween(200)) }
+                                                                            isVisible = false
+                                                                            delay(220)
+                                                                            stopSelf()
+                                                                        }
+                                                                    } else {
+                                                                        scope.launch {
+                                                                            dragOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
+                                                                        }
+                                                                    }
+                                                                },
+                                                                onDragCancel = {
+                                                                    scope.launch {
+                                                                        dragOffsetX.animateTo(0f)
+                                                                    }
+                                                                },
+                                                                onDrag = { change, dragAmount ->
+                                                                    change.consume()
+                                                                    // Movimento vertical ajusta a posição da janela na tela (params.y)
+                                                                    if (kotlin.math.abs(dragAmount.y) > 0.5f) {
+                                                                        params.y = Math.max(0, params.y - dragAmount.y.toInt())
+                                                                        windowManager?.updateViewLayout(frameLayout, params)
+                                                                    }
+                                                                    // Movimento horizontal acumula o deslocamento para fechar por deslizamento
+                                                                    scope.launch {
+                                                                        dragOffsetX.snapTo(dragOffsetX.value + dragAmount.x)
+                                                                    }
+                                                                }
+                                                            )
                                                         },
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .width(32.dp)
-                                                            .height(4.dp)
-                                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                                                    )
+                                                    Column(
+                                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                                        modifier = Modifier.padding(vertical = 4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .width(36.dp)
+                                                                .height(5.dp)
+                                                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(50))
+                                                        )
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = "◄ Deslize para fechar ►",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                        )
+                                                    }
                                                 }
                                                 
                                                 Spacer(modifier = Modifier.height(16.dp))

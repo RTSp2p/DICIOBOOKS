@@ -404,6 +404,7 @@ fun HistoryScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
 @Composable
 fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsState()
+    val context = LocalContext.current
 
     Scaffold(
         topBar = {
@@ -439,6 +440,54 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                 RadioButton(selected = themeMode == com.example.ThemeMode.DARK, onClick = { viewModel.setThemeMode(com.example.ThemeMode.DARK) })
                 Spacer(Modifier.width(16.dp))
                 Text("Escuro", style = MaterialTheme.typography.bodyLarge)
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Captura de Seleção de Texto (Acessibilidade)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ao selecionar qualquer palavra em outro aplicativo, a bolha flutuante do dicionário abre automaticamente para exibir a definição.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Accessibility, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Ativar Serviço de Acessibilidade")
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedButton(
+                onClick = {
+                    if (!android.provider.Settings.canDrawOverlays(context)) {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                    } else {
+                        android.widget.Toast.makeText(context, "Permissão de sobreposição já concedida!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Layers, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Permissão de Sobreposição na Tela")
             }
         }
     }

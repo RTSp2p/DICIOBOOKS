@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Dicionário de Leitura Flutuante</string>
+    <string name="accessibility_service_name">Captura de Texto do Dicionário</string>
+    <string name="accessibility_service_description">Captura automaticamente o texto selecionado em qualquer aplicativo para exibir a definição em uma bolha flutuante.</string>
 </resources>
