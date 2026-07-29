@@ -12,6 +12,7 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -189,6 +190,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
 
                     val uiState by viewModel.uiState.collectAsState()
                     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
+                    val floatingFontSize by viewModel.floatingFontSize.collectAsState()
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
                     val scope = rememberCoroutineScope()
@@ -209,22 +211,93 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                             params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
                             params.width = WindowManager.LayoutParams.MATCH_PARENT
                             params.height = WindowManager.LayoutParams.WRAP_CONTENT
+                            params.x = 0
+                            params.y = 0
                             windowManager?.updateViewLayout(frameLayout, params)
                         }
                     }
                     
+                    var interactionCount by remember { mutableStateOf(0) }
+
+                    fun dockToNearestEdge() {
+                        val displayMetrics = resources.displayMetrics
+                        val screenWidth = displayMetrics.widthPixels
+                        val screenHeight = displayMetrics.heightPixels
+                        val fabW = if (frameLayout.width > 0) frameLayout.width else 150
+                        val fabH = if (frameLayout.height > 0) frameLayout.height else 150
+                        val maxDeltaX = ((screenWidth - fabW) / 2).coerceAtLeast(0)
+                        val maxY = (screenHeight - fabH).coerceAtLeast(0)
+
+                        val distLeft = params.x - (-maxDeltaX)
+                        val distRight = maxDeltaX - params.x
+                        val distBottom = params.y - 0
+                        val distTop = maxY - params.y
+
+                        val minDist = minOf(distLeft, distRight, distBottom, distTop)
+
+                        when (minDist) {
+                            distLeft -> {
+                                params.x = -maxDeltaX - fabW / 2
+                                params.y = params.y.coerceIn(0, maxY)
+                            }
+                            distRight -> {
+                                params.x = maxDeltaX + fabW / 2
+                                params.y = params.y.coerceIn(0, maxY)
+                            }
+                            distBottom -> {
+                                params.y = -fabH / 2
+                                params.x = params.x.coerceIn(-maxDeltaX, maxDeltaX)
+                            }
+                            distTop -> {
+                                params.y = maxY + fabH / 2
+                                params.x = params.x.coerceIn(-maxDeltaX, maxDeltaX)
+                            }
+                        }
+                        windowManager?.updateViewLayout(frameLayout, params)
+                    }
+
+                    LaunchedEffect(isMinimized, interactionCount) {
+                        if (isMinimized) {
+                            delay(60000L)
+                            dockToNearestEdge()
+                        }
+                    }
+
                     if (isMinimized) {
                         FloatingActionButton(
                             onClick = { isMinimized = false },
+                            shape = CircleShape,
                             modifier = Modifier
-                                .padding(16.dp)
+                                .padding(4.dp)
                                 .pointerInput(Unit) {
-                                    detectDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        params.y = Math.max(0, params.y - dragAmount.y.toInt())
-                                        params.x += dragAmount.x.toInt()
-                                        windowManager?.updateViewLayout(frameLayout, params)
-                                    }
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            interactionCount++
+                                        },
+                                        onDragEnd = {
+                                            dockToNearestEdge()
+                                            interactionCount++
+                                        },
+                                        onDragCancel = {
+                                            dockToNearestEdge()
+                                            interactionCount++
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val displayMetrics = resources.displayMetrics
+                                            val screenWidth = displayMetrics.widthPixels
+                                            val screenHeight = displayMetrics.heightPixels
+                                            val fabW = if (frameLayout.width > 0) frameLayout.width else 150
+                                            val fabH = if (frameLayout.height > 0) frameLayout.height else 150
+                                            val maxDeltaX = ((screenWidth - fabW) / 2).coerceAtLeast(0)
+                                            val maxY = (screenHeight - fabH).coerceAtLeast(0)
+
+                                            val allowExtra = fabW
+                                            params.y = (params.y - dragAmount.y.toInt()).coerceIn(-allowExtra, maxY + allowExtra)
+                                            params.x = (params.x + dragAmount.x.toInt()).coerceIn(-maxDeltaX - allowExtra, maxDeltaX + allowExtra)
+                                            windowManager?.updateViewLayout(frameLayout, params)
+                                        }
+                                    )
                                 }
                         ) {
                             Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
@@ -277,7 +350,8 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                     val currentOffsetX = dragOffsetX.value
                                                                     if (kotlin.math.abs(currentOffsetX) > dismissThresholdPx) {
                                                                         scope.launch {
-                                                                            val targetX = if (currentOffsetX > 0) currentOffsetX + 600f else currentOffsetX - 600f
+                                                                            val screenWidth = resources.displayMetrics.widthPixels.toFloat()
+                                                                            val targetX = if (currentOffsetX > 0) currentOffsetX + screenWidth else currentOffsetX - screenWidth
                                                                             launch { dragOffsetX.animateTo(targetX, tween(200)) }
                                                                             isVisible = false
                                                                             delay(220)
@@ -296,11 +370,26 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                 },
                                                                 onDrag = { change, dragAmount ->
                                                                     change.consume()
-                                                                    // Movimento vertical ajusta a posição da janela na tela (params.y)
+                                                                    val displayMetrics = resources.displayMetrics
+                                                                    val screenWidth = displayMetrics.widthPixels
+                                                                    val screenHeight = displayMetrics.heightPixels
+
+                                                                    val currentW = if (frameLayout.width > 0) frameLayout.width else (if (params.width > 0 && params.width != WindowManager.LayoutParams.MATCH_PARENT) params.width else screenWidth)
+                                                                    val currentH = if (frameLayout.height > 0) frameLayout.height else (if (params.height > 0 && params.height != WindowManager.LayoutParams.WRAP_CONTENT) params.height else 400)
+
+                                                                    val maxDeltaX = ((screenWidth - currentW) / 2).coerceAtLeast(0)
+                                                                    val maxY = (screenHeight - currentH).coerceAtLeast(0)
+
+                                                                    // Movimento vertical (params.y) delimitado pelas bordas superior e inferior da tela
                                                                     if (kotlin.math.abs(dragAmount.y) > 0.5f) {
-                                                                        params.y = Math.max(0, params.y - dragAmount.y.toInt())
-                                                                        windowManager?.updateViewLayout(frameLayout, params)
+                                                                        params.y = (params.y - dragAmount.y.toInt()).coerceIn(0, maxY)
                                                                     }
+                                                                    // Movimento horizontal (params.x) se a janela for menor que a tela
+                                                                    if (kotlin.math.abs(dragAmount.x) > 0.5f && maxDeltaX > 0) {
+                                                                        params.x = (params.x + dragAmount.x.toInt()).coerceIn(-maxDeltaX, maxDeltaX)
+                                                                    }
+                                                                    windowManager?.updateViewLayout(frameLayout, params)
+
                                                                     // Movimento horizontal acumula o deslocamento para fechar por deslizamento
                                                                     scope.launch {
                                                                         dragOffsetX.snapTo(dragOffsetX.value + dragAmount.x)
@@ -424,7 +513,8 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                     kotlinx.coroutines.delay(300)
                                                                     stopSelf()
                                                                 }
-                                                            }
+                                                            },
+                                                            fontSizeSp = floatingFontSize
                                                         )
                                                     }
                                                 }
@@ -478,13 +568,29 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                     },
                                                     onDrag = { change, dragAmount ->
                                                         change.consume()
+                                                        val displayMetrics = resources.displayMetrics
+                                                        val screenWidth = displayMetrics.widthPixels
+                                                        val screenHeight = displayMetrics.heightPixels
+
                                                         params.height -= dragAmount.y.toInt()
                                                         params.width += (dragAmount.x.toInt() * 2)
                                                         
-                                                        // Min sizes
-                                                        if (params.height < 200) params.height = 200
-                                                        if (params.width < 200) params.width = 200
-                                                        
+                                                        val minSizePx = (200 * currentDensity.density).toInt()
+                                                        if (params.height < minSizePx) params.height = minSizePx
+                                                        if (params.height > screenHeight) params.height = screenHeight
+
+                                                        if (params.width < minSizePx) params.width = minSizePx
+                                                        if (params.width > screenWidth) params.width = screenWidth
+
+                                                        val currentW = if (frameLayout.width > 0) frameLayout.width else params.width
+                                                        val currentH = if (frameLayout.height > 0) frameLayout.height else params.height
+
+                                                        val maxDeltaX = ((screenWidth - currentW) / 2).coerceAtLeast(0)
+                                                        val maxY = (screenHeight - currentH).coerceAtLeast(0)
+
+                                                        params.x = params.x.coerceIn(-maxDeltaX, maxDeltaX)
+                                                        params.y = params.y.coerceIn(0, maxY)
+
                                                         windowManager?.updateViewLayout(frameLayout, params)
                                                     }
                                                 )

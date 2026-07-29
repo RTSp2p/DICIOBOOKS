@@ -81,6 +81,26 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         _themeMode.value = mode
     }
 
+    private val _hasSeenTutorial = MutableStateFlow(prefs.getBoolean("has_seen_tutorial", false))
+    val hasSeenTutorial: StateFlow<Boolean> = _hasSeenTutorial.asStateFlow()
+
+    fun completeTutorial() {
+        prefs.edit().putBoolean("has_seen_tutorial", true).apply()
+        _hasSeenTutorial.value = true
+    }
+
+    fun showTutorialAgain() {
+        _hasSeenTutorial.value = false
+    }
+
+    private val _floatingFontSize = MutableStateFlow(prefs.getFloat("floating_font_size", 16f))
+    val floatingFontSize: StateFlow<Float> = _floatingFontSize.asStateFlow()
+
+    fun setFloatingFontSize(sizeSp: Float) {
+        prefs.edit().putFloat("floating_font_size", sizeSp).apply()
+        _floatingFontSize.value = sizeSp
+    }
+
     private val repository = DictionaryRepository()
     private val db = AppDatabase.getDatabase(application)
     private val searchHistoryRepository = SearchHistoryRepository(db.searchHistoryDao())
@@ -581,8 +601,14 @@ fun DictionaryResultContent(
     tts: TextToSpeech?,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    fontSizeSp: Float = 16f
 ) {
+    val titleSize = (fontSizeSp * 1.5f).sp
+    val definitionSize = fontSizeSp.sp
+    val definitionLineHeight = (fontSizeSp * 1.45f).sp
+    val labelSize = (fontSizeSp * 0.8f).sp
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -591,7 +617,7 @@ fun DictionaryResultContent(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = state.result.word,
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineLarge.copy(fontSize = titleSize),
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onBackground
             )
@@ -604,7 +630,7 @@ fun DictionaryResultContent(
                 ) {
                     Text(
                         text = state.result.partOfSpeech.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = labelSize),
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
@@ -663,9 +689,8 @@ fun DictionaryResultContent(
     // Definition
     Text(
         text = state.result.definition,
-        style = MaterialTheme.typography.bodyLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        lineHeight = 24.sp
+        style = MaterialTheme.typography.bodyLarge.copy(fontSize = definitionSize, lineHeight = definitionLineHeight),
+        color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     
     if (state.result.synonyms.isNotEmpty()) {
