@@ -31,6 +31,7 @@ import com.example.DictionaryApp
 import com.example.DictionaryViewModel
 import com.example.MainActivity
 import com.example.MenuScreen
+import com.example.data.TranslationLanguage
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -497,6 +498,7 @@ fun HistoryScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
 fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsState()
     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
+    val targetLanguage by viewModel.targetLanguage.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -518,6 +520,40 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            Text("Idioma de Tradução e Explicação", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Escolha o idioma em que deseja receber as definições, explicações e sinônimos das palavras.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+
+            TranslationLanguage.entries.forEach { lang ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setTargetLanguage(lang) }
+                        .padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = targetLanguage == lang,
+                        onClick = { viewModel.setTargetLanguage(lang) }
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "${lang.flag}  ${lang.displayName}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = if (targetLanguage == lang) FontWeight.Bold else FontWeight.Normal
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
             Text("Aparência", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(16.dp))
             

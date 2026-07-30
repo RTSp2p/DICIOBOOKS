@@ -40,6 +40,7 @@ import com.example.data.DictionaryRepository
 import com.example.data.DictionaryResult
 import com.example.data.SearchHistory
 import com.example.data.SearchHistoryRepository
+import com.example.data.TranslationLanguage
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -99,6 +100,16 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
     fun setFloatingFontSize(sizeSp: Float) {
         prefs.edit().putFloat("floating_font_size", sizeSp).apply()
         _floatingFontSize.value = sizeSp
+    }
+
+    private val _targetLanguage = MutableStateFlow(
+        TranslationLanguage.fromCode(prefs.getString("target_language", TranslationLanguage.PORTUGUESE.code))
+    )
+    val targetLanguage: StateFlow<TranslationLanguage> = _targetLanguage.asStateFlow()
+
+    fun setTargetLanguage(language: TranslationLanguage) {
+        prefs.edit().putString("target_language", language.code).apply()
+        _targetLanguage.value = language
     }
 
     private val repository = DictionaryRepository()
@@ -181,22 +192,8 @@ private var searchJob: kotlinx.coroutines.Job? = null
         searchJob?.cancel()
         _uiState.value = DictionaryUiState.Loading
         searchJob = viewModelScope.launch {
-            val cached = searchHistoryRepository.getSearchByWord(word.trim())
-            if (cached != null) {
-                val data = DictionaryResult(
-                    word = cached.word,
-                    partOfSpeech = cached.partOfSpeech,
-                    definition = cached.definition,
-                    synonyms = if (cached.synonyms.isNotEmpty()) cached.synonyms.split(", ") else emptyList()
-                )
-                _uiState.value = DictionaryUiState.Success(data)
-                _isCurrentWordFavorite.value = favoriteRepository.isFavorite(data.word)
-                // Atualiza o timestamp (re-insere) para voltar ao topo do histórico
-                searchHistoryRepository.insert(cached.copy(timestamp = System.currentTimeMillis()))
-                return@launch
-            }
-
-            val result = repository.getDefinitionAndSynonyms(word)
+            val currentLang = _targetLanguage.value
+            val result = repository.getDefinitionAndSynonyms(word, currentLang)
             result.onSuccess { data ->
                 _uiState.value = DictionaryUiState.Success(data)
                 _isCurrentWordFavorite.value = favoriteRepository.isFavorite(data.word)
@@ -373,15 +370,15 @@ fun MenuScreen(
 }
 
 @Composable
-fun rememberTextToSpeech(): TextToSpeech? {
+fun rememberTextToSpeech(targetLanguage: TranslationLanguage = TranslationLanguage.PORTUGUESE): TextToSpeech? {
     val context = LocalContext.current
     var tts by remember { mutableStateOf<TextToSpeech?>(null) }
 
-    DisposableEffect(context) {
+    DisposableEffect(context, targetLanguage) {
         var textToSpeech: TextToSpeech? = null
         textToSpeech = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                textToSpeech?.language = Locale("pt", "BR")
+                textToSpeech?.language = targetLanguage.locale
             }
         }
         tts = textToSpeech
@@ -404,10 +401,11 @@ fun DictionaryApp(
     val isBottomSheetVisible by viewModel.isBottomSheetVisible.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
+    val targetLanguage by viewModel.targetLanguage.collectAsState()
     
     val searchHistory by viewModel.searchHistory.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val tts = rememberTextToSpeech()
+    val tts = rememberTextToSpeech(targetLanguage)
 
     LaunchedEffect(initialTextToProcess) {
         if (!initialTextToProcess.isNullOrBlank()) {
@@ -585,7 +583,12 @@ fun DictionaryApp(
                             tts = tts,
                             isFavorite = isCurrentWordFavorite,
                             onToggleFavorite = { viewModel.toggleFavorite(state.result.word, state.result.definition) },
-                            onClose = { viewModel.hideBottomSheet() }
+                            onClose = { viewModel.hideBottomSheet() },
+                            currentLanguage = targetLanguage,
+                            onSelectLanguage = { lang ->
+                                viewModel.setTargetLanguage(lang)
+                                viewModel.showBottomSheet(state.result.word)
+                            }
                         )
                     }
                 }
@@ -602,7 +605,9 @@ fun DictionaryResultContent(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onClose: () -> Unit,
-    fontSizeSp: Float = 16f
+    fontSizeSp: Float = 16f,
+    currentLanguage: TranslationLanguage = TranslationLanguage.PORTUGUESE,
+    onSelectLanguage: ((TranslationLanguage) -> Unit)? = null
 ) {
     val titleSize = (fontSizeSp * 1.5f).sp
     val definitionSize = fontSizeSp.sp
@@ -678,6 +683,33 @@ fun DictionaryResultContent(
                         modifier = Modifier.padding(12.dp)
                     )
                 }
+            }
+        }
+    }
+
+    if (onSelectLanguage != null) {
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Idioma:",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.outline
+            )
+            TranslationLanguage.entries.forEach { lang ->
+                val isSelected = lang == currentLanguage
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { if (!isSelected) onSelectLanguage(lang) },
+                    label = { Text("${lang.flag} ${lang.displayName}", fontSize = 12.sp) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.height(32.dp)
+                )
             }
         }
     }

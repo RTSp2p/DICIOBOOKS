@@ -15,7 +15,10 @@ data class DictionaryResult(
 )
 
 class DictionaryRepository {
-    suspend fun getDefinitionAndSynonyms(word: String): Result<DictionaryResult> = withContext(Dispatchers.IO) {
+    suspend fun getDefinitionAndSynonyms(
+        word: String,
+        targetLanguage: TranslationLanguage = TranslationLanguage.PORTUGUESE
+    ): Result<DictionaryResult> = withContext(Dispatchers.IO) {
         try {
             val apiKey = try {
                 val groqKey = BuildConfig.GROQ_API_KEY
@@ -30,21 +33,47 @@ class DictionaryRepository {
 
             val authHeader = if (apiKey.startsWith("Bearer ", ignoreCase = true)) apiKey else "Bearer $apiKey"
 
-            val prompt = """
-                Analise a seguinte palavra ou frase em português: "$word".
-                Forneça o significado e sinônimos no formato exato abaixo, sem adicionar mais nada.
-                
-                Classe Gramatical: [Substantivo/Adjetivo/Verbo/etc.]
-                Definição: [A definição mais comum e contextualizada]
-                Sinônimos: [Sinônimo 1, Sinônimo 2, Sinônimo 3]
-            """.trimIndent()
+            val prompt = when (targetLanguage) {
+                TranslationLanguage.PORTUGUESE -> """
+                    Analise a seguinte palavra ou frase: "$word".
+                    Forneça a definição, classe gramatical e sinônimos explicados em Português no formato exato abaixo, sem adicionar nada mais:
+
+                    Classe Gramatical: [Substantivo/Adjetivo/Verbo/etc.]
+                    Definição: [A definição e explicação em Português]
+                    Sinônimos: [Sinônimo 1, Sinônimo 2, Sinônimo 3]
+                """.trimIndent()
+
+                TranslationLanguage.ENGLISH -> """
+                    Analyze the following word or phrase: "$word".
+                    Provide the definition, part of speech, and synonyms explained in English in the exact format below, without adding anything else:
+
+                    Classe Gramatical: [Part of speech in English, e.g., Noun/Adjective/Verb]
+                    Definição: [Definition and explanation in English]
+                    Sinônimos: [Synonym 1, Synonym 2, Synonym 3]
+                """.trimIndent()
+
+                TranslationLanguage.SPANISH -> """
+                    Analice la siguiente palabra o frase: "$word".
+                    Proporcione la definición, clase gramatical y sinónimos explicados en Español en el formato exacto a continuación, sin agregar nada más:
+
+                    Classe Gramatical: [Clase gramatical en Español, p. ej. Sustantivo/Adjetivo/Verbo]
+                    Definição: [Definición y explicación en Español]
+                    Sinônimos: [Sinónimo 1, Sinónimo 2, Sinónimo 3]
+                """.trimIndent()
+            }
+
+            val systemInstruction = when (targetLanguage) {
+                TranslationLanguage.PORTUGUESE -> "Você é um dicionário e tradutor conciso e preciso. Responda apenas no formato solicitado com explicações em Português."
+                TranslationLanguage.ENGLISH -> "You are a concise and accurate dictionary and translator. Provide all definitions and explanations in English. Respond only in the requested format."
+                TranslationLanguage.SPANISH -> "Eres un diccionario y traductor conciso y preciso. Proporciona todas las definiciones y explicaciones en Español. Responde solo en el formato solicitado."
+            }
 
             val request = GroqChatRequest(
                 model = "llama-3.3-70b-versatile",
                 messages = listOf(
                     GroqMessage(
                         role = "system",
-                        content = "Você é um dicionário conciso e preciso. Responda apenas no formato solicitado."
+                        content = systemInstruction
                     ),
                     GroqMessage(
                         role = "user",

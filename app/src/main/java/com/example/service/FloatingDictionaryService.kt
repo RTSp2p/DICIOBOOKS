@@ -191,12 +191,17 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     val uiState by viewModel.uiState.collectAsState()
                     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
                     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
+                    val targetLanguage by viewModel.targetLanguage.collectAsState()
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
                     val scope = rememberCoroutineScope()
                     
                     LaunchedEffect(Unit) {
                         isVisible = true
+                    }
+
+                    LaunchedEffect(targetLanguage) {
+                        tts?.language = targetLanguage.locale
                     }
 
                     LaunchedEffect(isMinimized) {
@@ -514,7 +519,12 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                     stopSelf()
                                                                 }
                                                             },
-                                                            fontSizeSp = floatingFontSize
+                                                            fontSizeSp = floatingFontSize,
+                                                            currentLanguage = targetLanguage,
+                                                            onSelectLanguage = { lang ->
+                                                                viewModel.setTargetLanguage(lang)
+                                                                viewModel.showBottomSheet(state.result.word)
+                                                            }
                                                         )
                                                     }
                                                 }
