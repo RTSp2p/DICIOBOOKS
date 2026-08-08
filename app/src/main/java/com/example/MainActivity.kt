@@ -102,6 +102,15 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         _floatingFontSize.value = sizeSp
     }
 
+    private val _floatingIconOpacity = MutableStateFlow(prefs.getFloat("floating_icon_opacity", 1.0f))
+    val floatingIconOpacity: StateFlow<Float> = _floatingIconOpacity.asStateFlow()
+
+    fun setFloatingIconOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.2f, 1.0f)
+        prefs.edit().putFloat("floating_icon_opacity", clamped).apply()
+        _floatingIconOpacity.value = clamped
+    }
+
     private val _targetLanguage = MutableStateFlow(
         TranslationLanguage.fromCode(prefs.getString("target_language", TranslationLanguage.PORTUGUESE.code))
     )

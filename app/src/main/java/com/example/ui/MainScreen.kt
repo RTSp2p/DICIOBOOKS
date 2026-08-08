@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -498,6 +499,7 @@ fun HistoryScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
 fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsState()
     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
+    val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
     val targetLanguage by viewModel.targetLanguage.collectAsState()
     val context = LocalContext.current
 
@@ -669,6 +671,73 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                         lineHeight = (floatingFontSize * 1.4f).sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Opacidade do Ícone Flutuante", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ajuste a transparência do ícone flutuante minimizado para reduzir distrações visuais enquanto lê ou navega.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Opacidade: ${(floatingIconOpacity * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                TextButton(onClick = { viewModel.setFloatingIconOpacity(1.0f) }) {
+                    Text("Redefinir (100%)")
+                }
+            }
+
+            Slider(
+                value = floatingIconOpacity,
+                onValueChange = { viewModel.setFloatingIconOpacity(it) },
+                valueRange = 0.2f..1.0f,
+                steps = 7,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Pré-visualização do Ícone Flutuante",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.Start)
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    FloatingActionButton(
+                        onClick = {},
+                        shape = CircleShape,
+                        modifier = Modifier.graphicsLayer { alpha = floatingIconOpacity }
+                    ) {
+                        Icon(imageVector = Icons.Default.Search, contentDescription = "Pré-visualização do Ícone")
+                    }
                 }
             }
 

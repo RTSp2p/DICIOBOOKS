@@ -194,6 +194,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     val uiState by viewModel.uiState.collectAsState()
                     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
                     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
+                    val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
                     val targetLanguage by viewModel.targetLanguage.collectAsState()
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
@@ -330,6 +331,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                 onClick = {},
                                 shape = CircleShape,
                                 modifier = Modifier
+                                    .graphicsLayer { alpha = floatingIconOpacity }
                                     .padding(4.dp)
                                     .pointerInput(Unit) {
                                         awaitEachGesture {
