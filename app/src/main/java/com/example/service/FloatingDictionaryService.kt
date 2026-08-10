@@ -53,6 +53,13 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.DictionaryUiState
 import com.example.DictionaryViewModel
 import com.example.DictionaryResultContent
+import com.example.data.SearchMode
+import com.example.data.TranslationLanguage
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.ui.text.font.FontWeight
 import com.example.ui.theme.MyApplicationTheme
 import java.util.Locale
 
@@ -196,6 +203,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
                     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
                     val targetLanguage by viewModel.targetLanguage.collectAsState()
+                    val searchMode by viewModel.searchMode.collectAsState()
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
                     val scope = rememberCoroutineScope()
@@ -508,18 +516,139 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                     when (val state = uiState) {
                                                         is DictionaryUiState.Idle -> {
                                                             var textToSearch by remember { mutableStateOf("") }
+                                                            var languageMenuExpanded by remember { mutableStateOf(false) }
+
                                                             Column(
-                                                                modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp),
-                                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                                verticalArrangement = Arrangement.Center
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .padding(vertical = 8.dp),
+                                                                horizontalAlignment = Alignment.CenterHorizontally
                                                             ) {
+                                                                // Mode Toggle Selector
+                                                                Text(
+                                                                    text = "Modo de Consulta",
+                                                                    style = MaterialTheme.typography.labelMedium,
+                                                                    color = MaterialTheme.colorScheme.primary,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    modifier = Modifier.align(Alignment.Start)
+                                                                )
+                                                                Spacer(modifier = Modifier.height(6.dp))
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                                ) {
+                                                                    FilterChip(
+                                                                        selected = searchMode == SearchMode.MEANING,
+                                                                        onClick = { viewModel.setSearchMode(SearchMode.MEANING) },
+                                                                        label = { Text("Significado") },
+                                                                        leadingIcon = {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Book,
+                                                                                contentDescription = null,
+                                                                                modifier = Modifier.size(16.dp)
+                                                                            )
+                                                                        },
+                                                                        modifier = Modifier.weight(1f)
+                                                                    )
+                                                                    FilterChip(
+                                                                        selected = searchMode == SearchMode.TRANSLATION,
+                                                                        onClick = { viewModel.setSearchMode(SearchMode.TRANSLATION) },
+                                                                        label = { Text("Tradução") },
+                                                                        leadingIcon = {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Translate,
+                                                                                contentDescription = null,
+                                                                                modifier = Modifier.size(16.dp)
+                                                                            )
+                                                                        },
+                                                                        modifier = Modifier.weight(1f)
+                                                                    )
+                                                                }
+
+                                                                Spacer(modifier = Modifier.height(12.dp))
+
+                                                                // Target Language Dropdown
+                                                                Row(
+                                                                    modifier = Modifier.fillMaxWidth(),
+                                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                                    verticalAlignment = Alignment.CenterVertically
+                                                                ) {
+                                                                    Text(
+                                                                        text = "Idioma de Destino:",
+                                                                        style = MaterialTheme.typography.labelMedium,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+
+                                                                    Box {
+                                                                        OutlinedButton(
+                                                                            onClick = { languageMenuExpanded = true },
+                                                                            shape = RoundedCornerShape(12.dp),
+                                                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                                                        ) {
+                                                                            Text("${targetLanguage.flag} ${targetLanguage.displayName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                                                            Spacer(Modifier.width(4.dp))
+                                                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Selecionar idioma")
+                                                                        }
+
+                                                                        DropdownMenu(
+                                                                            expanded = languageMenuExpanded,
+                                                                            onDismissRequest = { languageMenuExpanded = false }
+                                                                        ) {
+                                                                            TranslationLanguage.entries.forEach { lang ->
+                                                                                DropdownMenuItem(
+                                                                                    text = {
+                                                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                                            Text(lang.flag, style = MaterialTheme.typography.titleMedium)
+                                                                                            Spacer(Modifier.width(8.dp))
+                                                                                            Text(
+                                                                                                text = lang.displayName,
+                                                                                                style = MaterialTheme.typography.bodyMedium,
+                                                                                                fontWeight = if (targetLanguage == lang) FontWeight.Bold else FontWeight.Normal
+                                                                                            )
+                                                                                        }
+                                                                                    },
+                                                                                    onClick = {
+                                                                                        viewModel.setTargetLanguage(lang)
+                                                                                        languageMenuExpanded = false
+                                                                                    },
+                                                                                    leadingIcon = if (targetLanguage == lang) {
+                                                                                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
+                                                                                    } else null
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+
+                                                                Spacer(modifier = Modifier.height(12.dp))
+
                                                                 OutlinedTextField(
                                                                     value = textToSearch,
                                                                     onValueChange = { textToSearch = it },
-                                                                    label = { Text("Pesquisar palavra") },
+                                                                    label = {
+                                                                        Text(
+                                                                            if (searchMode == SearchMode.TRANSLATION) "Digite o texto para traduzir"
+                                                                            else "Digite a palavra para pesquisar"
+                                                                        )
+                                                                    },
+                                                                    placeholder = {
+                                                                        Text(
+                                                                            if (searchMode == SearchMode.TRANSLATION) "Ex: Hello world"
+                                                                            else "Ex: Efêmero"
+                                                                        )
+                                                                    },
+                                                                    leadingIcon = {
+                                                                        Icon(
+                                                                            imageVector = if (searchMode == SearchMode.TRANSLATION) Icons.Default.Translate else Icons.Default.Search,
+                                                                            contentDescription = null
+                                                                        )
+                                                                    },
+                                                                    singleLine = true,
                                                                     modifier = Modifier.fillMaxWidth()
                                                                 )
+
                                                                 Spacer(modifier = Modifier.height(16.dp))
+
                                                                 Row(
                                                                     modifier = Modifier.fillMaxWidth(),
                                                                     horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -544,7 +673,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                         },
                                                                         modifier = Modifier.weight(1f)
                                                                     ) {
-                                                                        Text("Buscar")
+                                                                        Text(if (searchMode == SearchMode.TRANSLATION) "Traduzir" else "Buscar")
                                                                     }
                                                                 }
                                                             }

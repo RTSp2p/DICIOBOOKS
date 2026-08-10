@@ -2,6 +2,7 @@ package com.example
 
 import android.content.Intent
 import android.os.Bundle
+import com.example.data.SearchMode
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
@@ -54,6 +55,8 @@ import com.example.data.FavoriteRepository
 import kotlinx.coroutines.flow.map
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -119,6 +122,16 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
     fun setTargetLanguage(language: TranslationLanguage) {
         prefs.edit().putString("target_language", language.code).apply()
         _targetLanguage.value = language
+    }
+
+    private val _searchMode = MutableStateFlow(
+        SearchMode.fromName(prefs.getString("search_mode", SearchMode.MEANING.name))
+    )
+    val searchMode: StateFlow<SearchMode> = _searchMode.asStateFlow()
+
+    fun setSearchMode(mode: SearchMode) {
+        prefs.edit().putString("search_mode", mode.name).apply()
+        _searchMode.value = mode
     }
 
     private val repository = DictionaryRepository()
@@ -202,7 +215,8 @@ private var searchJob: kotlinx.coroutines.Job? = null
         _uiState.value = DictionaryUiState.Loading
         searchJob = viewModelScope.launch {
             val currentLang = _targetLanguage.value
-            val result = repository.getDefinitionAndSynonyms(word, currentLang)
+            val currentMode = _searchMode.value
+            val result = repository.getDefinitionAndSynonyms(word, currentLang, currentMode)
             result.onSuccess { data ->
                 _uiState.value = DictionaryUiState.Success(data)
                 _isCurrentWordFavorite.value = favoriteRepository.isFavorite(data.word)
@@ -411,6 +425,7 @@ fun DictionaryApp(
     val uiState by viewModel.uiState.collectAsState()
     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
     val targetLanguage by viewModel.targetLanguage.collectAsState()
+    val searchMode by viewModel.searchMode.collectAsState()
     
     val searchHistory by viewModel.searchHistory.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -597,6 +612,11 @@ fun DictionaryApp(
                             onSelectLanguage = { lang ->
                                 viewModel.setTargetLanguage(lang)
                                 viewModel.showBottomSheet(state.result.word)
+                            },
+                            currentSearchMode = searchMode,
+                            onSelectSearchMode = { mode ->
+                                viewModel.setSearchMode(mode)
+                                viewModel.showBottomSheet(state.result.word)
                             }
                         )
                     }
@@ -616,7 +636,9 @@ fun DictionaryResultContent(
     onClose: () -> Unit,
     fontSizeSp: Float = 16f,
     currentLanguage: TranslationLanguage = TranslationLanguage.PORTUGUESE,
-    onSelectLanguage: ((TranslationLanguage) -> Unit)? = null
+    onSelectLanguage: ((TranslationLanguage) -> Unit)? = null,
+    currentSearchMode: SearchMode = SearchMode.MEANING,
+    onSelectSearchMode: ((SearchMode) -> Unit)? = null
 ) {
     val titleSize = (fontSizeSp * 1.5f).sp
     val definitionSize = fontSizeSp.sp
@@ -696,29 +718,61 @@ fun DictionaryResultContent(
         }
     }
 
-    if (onSelectLanguage != null) {
+    if (onSelectLanguage != null || onSelectSearchMode != null) {
         Spacer(modifier = Modifier.height(10.dp))
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Idioma:",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.outline
-            )
-            TranslationLanguage.entries.forEach { lang ->
-                val isSelected = lang == currentLanguage
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { if (!isSelected) onSelectLanguage(lang) },
-                    label = { Text("${lang.flag} ${lang.displayName}", fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    modifier = Modifier.height(32.dp)
-                )
+            if (onSelectSearchMode != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = currentSearchMode == SearchMode.MEANING,
+                        onClick = { if (currentSearchMode != SearchMode.MEANING) onSelectSearchMode(SearchMode.MEANING) },
+                        label = { Text("Significado", fontSize = 12.sp) },
+                        modifier = Modifier.height(32.dp)
+                    )
+                    FilterChip(
+                        selected = currentSearchMode == SearchMode.TRANSLATION,
+                        onClick = { if (currentSearchMode != SearchMode.TRANSLATION) onSelectSearchMode(SearchMode.TRANSLATION) },
+                        label = { Text("Tradução", fontSize = 12.sp) },
+                        modifier = Modifier.height(32.dp)
+                    )
+                }
+            }
+
+            if (onSelectLanguage != null) {
+                var langDropdownExpanded by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton(
+                        onClick = { langDropdownExpanded = true },
+                        shape = RoundedCornerShape(12.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("${currentLanguage.flag} ${currentLanguage.displayName}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = "Idioma", modifier = Modifier.size(16.dp))
+                    }
+                    DropdownMenu(
+                        expanded = langDropdownExpanded,
+                        onDismissRequest = { langDropdownExpanded = false }
+                    ) {
+                        TranslationLanguage.entries.forEach { lang ->
+                            DropdownMenuItem(
+                                text = { Text("${lang.flag} ${lang.displayName}", fontSize = 13.sp) },
+                                onClick = {
+                                    langDropdownExpanded = false
+                                    if (lang != currentLanguage) onSelectLanguage(lang)
+                                },
+                                leadingIcon = if (lang == currentLanguage) {
+                                    { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) }
+                                } else null
+                            )
+                        }
+                    }
+                }
             }
         }
     }

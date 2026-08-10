@@ -32,6 +32,7 @@ import com.example.DictionaryApp
 import com.example.DictionaryViewModel
 import com.example.MainActivity
 import com.example.MenuScreen
+import com.example.data.SearchMode
 import com.example.data.TranslationLanguage
 import kotlinx.coroutines.launch
 
@@ -501,6 +502,7 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
     val targetLanguage by viewModel.targetLanguage.collectAsState()
+    val searchMode by viewModel.searchMode.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -522,33 +524,135 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
-            Text("Idioma de Tradução e Explicação", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text("Modo de Operação", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Escolha o idioma em que deseja receber as definições, explicações e sinônimos das palavras.",
+                "Escolha como o aplicativo e a janela flutuante devem processar o texto selecionado ou pesquisado.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(12.dp))
 
-            TranslationLanguage.entries.forEach { lang ->
+            SearchMode.entries.forEach { mode ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { viewModel.setTargetLanguage(lang) }
+                        .clickable { viewModel.setSearchMode(mode) }
                         .padding(vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
-                        selected = targetLanguage == lang,
-                        onClick = { viewModel.setTargetLanguage(lang) }
+                        selected = searchMode == mode,
+                        onClick = { viewModel.setSearchMode(mode) }
                     )
                     Spacer(Modifier.width(12.dp))
-                    Text(
-                        text = "${lang.flag}  ${lang.displayName}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = if (targetLanguage == lang) FontWeight.Bold else FontWeight.Normal
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = mode.displayName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (searchMode == mode) FontWeight.Bold else FontWeight.Normal
+                        )
+                        Text(
+                            text = mode.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Idioma de Tradução Preferido (Contexto Gemini)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Selecione o idioma de destino no menu suspenso abaixo. Essa escolha é enviada como contexto direto para a API do Gemini AI ajustar as definições e traduções.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(16.dp))
+
+            var languageMenuExpanded by remember { mutableStateOf(false) }
+
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedCard(
+                    onClick = { languageMenuExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = targetLanguage.flag,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text(
+                                    text = "Idioma de Destino",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = targetLanguage.displayName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Menu suspenso de idiomas",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = languageMenuExpanded,
+                    onDismissRequest = { languageMenuExpanded = false },
+                    modifier = Modifier.fillMaxWidth(0.85f)
+                ) {
+                    TranslationLanguage.entries.forEach { lang ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(lang.flag, style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(
+                                        text = lang.displayName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (targetLanguage == lang) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
+                            },
+                            onClick = {
+                                viewModel.setTargetLanguage(lang)
+                                languageMenuExpanded = false
+                            },
+                            leadingIcon = if (targetLanguage == lang) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else null
+                        )
+                    }
                 }
             }
 
