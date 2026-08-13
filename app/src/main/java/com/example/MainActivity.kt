@@ -31,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -134,6 +136,16 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         _searchMode.value = mode
     }
 
+    private val _isClipboardListenerEnabled = MutableStateFlow(
+        prefs.getBoolean("is_clipboard_listener_enabled", true)
+    )
+    val isClipboardListenerEnabled: StateFlow<Boolean> = _isClipboardListenerEnabled.asStateFlow()
+
+    fun setClipboardListenerEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("is_clipboard_listener_enabled", enabled).apply()
+        _isClipboardListenerEnabled.value = enabled
+    }
+
     private val repository = DictionaryRepository()
     private val db = AppDatabase.getDatabase(application)
     private val searchHistoryRepository = SearchHistoryRepository(db.searchHistoryDao())
@@ -169,6 +181,10 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
 
     fun hideBottomSheet() {
         _isBottomSheetVisible.value = false
+        _uiState.value = DictionaryUiState.Idle
+    }
+
+    fun resetToSearch() {
         _uiState.value = DictionaryUiState.Idle
     }
 
@@ -608,6 +624,7 @@ fun DictionaryApp(
                             isFavorite = isCurrentWordFavorite,
                             onToggleFavorite = { viewModel.toggleFavorite(state.result.word, state.result.definition) },
                             onClose = { viewModel.hideBottomSheet() },
+                            onBackToSearch = { viewModel.hideBottomSheet() },
                             currentLanguage = targetLanguage,
                             onSelectLanguage = { lang ->
                                 viewModel.setTargetLanguage(lang)
@@ -634,6 +651,7 @@ fun DictionaryResultContent(
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
     onClose: () -> Unit,
+    onBackToSearch: (() -> Unit)? = null,
     fontSizeSp: Float = 16f,
     currentLanguage: TranslationLanguage = TranslationLanguage.PORTUGUESE,
     onSelectLanguage: ((TranslationLanguage) -> Unit)? = null,
@@ -644,6 +662,37 @@ fun DictionaryResultContent(
     val definitionSize = fontSizeSp.sp
     val definitionLineHeight = (fontSizeSp * 1.45f).sp
     val labelSize = (fontSizeSp * 0.8f).sp
+    
+    // Botão "Voltar para pesquisa" no canto supior esquerdo
+    /*if (onBackToSearch != null) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(
+                onClick = onBackToSearch,
+                modifier = Modifier
+                    .size(36.dp)
+                    .testTag("top_back_to_search_button")
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Voltar para Pesquisa",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "Voltar para Pesquisa",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { onBackToSearch() }
+            )
+        }
+    }*/
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -824,28 +873,53 @@ fun DictionaryResultContent(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Button(
-            onClick = { /* Could trigger more details */ },
-            modifier = Modifier
-                .weight(1f)
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            )
-        ) {
-            Text("Ver mais detalhes", fontWeight = FontWeight.Bold)
+        if (onBackToSearch != null) {
+            Button(
+                onClick = onBackToSearch,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp)
+                    .testTag("back_to_search_button"),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Voltar à Pesquisa", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        } else {
+            Button(
+                onClick = { /* Could trigger more details */ },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Text("Ver mais detalhes", fontWeight = FontWeight.Bold)
+            }
         }
         
         OutlinedButton(
             onClick = onClose,
             modifier = Modifier
-                .height(56.dp)
+                .height(52.dp)
                 .testTag("close_sheet_button"),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.primary
-            )
+            ),
+            shape = RoundedCornerShape(12.dp)
         ) {
             Text("Fechar", fontWeight = FontWeight.Medium)
         }

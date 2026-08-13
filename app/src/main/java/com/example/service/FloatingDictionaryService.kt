@@ -33,6 +33,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.sp
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
@@ -59,6 +60,10 @@ import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Close
+import android.content.ClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import com.example.ui.theme.MyApplicationTheme
 import java.util.Locale
@@ -204,6 +209,48 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
                     val targetLanguage by viewModel.targetLanguage.collectAsState()
                     val searchMode by viewModel.searchMode.collectAsState()
+                    val isClipboardEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
+
+                    var detectedCopiedText by remember { mutableStateOf<String?>(null) }
+                    var lastHandledClipText by remember { mutableStateOf<String?>(null) }
+
+                    val clipboardManager = remember { getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager }
+
+                    DisposableEffect(isClipboardEnabled, clipboardManager) {
+                        if (!isClipboardEnabled || clipboardManager == null) {
+                            onDispose { }
+                        } else {
+                            val listener = ClipboardManager.OnPrimaryClipChangedListener {
+                                try {
+                                    if (clipboardManager.hasPrimaryClip()) {
+                                        val clip = clipboardManager.primaryClip
+                                        if (clip != null && clip.itemCount > 0) {
+                                            val item = clip.getItemAt(0)
+                                            val rawText = (item.text?.toString() ?: item.coerceToText(this@FloatingDictionaryService)?.toString())?.trim()
+                                            if (!rawText.isNullOrBlank() && rawText != lastHandledClipText && rawText.length in 1..300) {
+                                                lastHandledClipText = rawText
+                                                detectedCopiedText = rawText
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    // SecurityException handled if background clipboard access is restricted on OS
+                                }
+                            }
+                            clipboardManager.addPrimaryClipChangedListener(listener)
+                            onDispose {
+                                clipboardManager.removePrimaryClipChangedListener(listener)
+                            }
+                        }
+                    }
+
+                    LaunchedEffect(detectedCopiedText) {
+                        if (detectedCopiedText != null) {
+                            delay(9000L)
+                            detectedCopiedText = null
+                        }
+                    }
+
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
                     val scope = rememberCoroutineScope()
@@ -335,65 +382,151 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                         label = "FloatingWindowTransition"
                     ) { minimized ->
                         if (minimized) {
-                            FloatingActionButton(
-                                onClick = {},
-                                shape = CircleShape,
-                                modifier = Modifier
-                                    .graphicsLayer { alpha = floatingIconOpacity }
-                                    .padding(4.dp)
-                                    .pointerInput(Unit) {
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(requireUnconsumed = false)
-                                            var totalDx = 0f
-                                            var totalDy = 0f
-                                            var isDrag = false
-                                            val touchSlop = viewConfiguration.touchSlop
-
-                                            interactionCount++
-
-                                            do {
-                                                val event = awaitPointerEvent()
-                                                val pointerChange = event.changes.find { it.id == down.id } ?: break
-                                                if (pointerChange.pressed) {
-                                                    val posChange = pointerChange.positionChange()
-                                                    totalDx += posChange.x
-                                                    totalDy += posChange.y
-
-                                                    if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
-                                                        isDrag = true
-                                                    }
-
-                                                    if (isDrag) {
-                                                        pointerChange.consume()
-                                                        val displayMetrics = resources.displayMetrics
-                                                        val screenWidth = displayMetrics.widthPixels
-                                                        val screenHeight = displayMetrics.heightPixels
-                                                        val fabW = if (frameLayout.width > 0) frameLayout.width else 150
-                                                        val fabH = if (frameLayout.height > 0) frameLayout.height else 150
-
-                                                        params.x = (params.x + posChange.x.toInt())
-                                                            .coerceIn(-fabW / 2, screenWidth - fabW / 2)
-                                                        params.y = (params.y + posChange.y.toInt())
-                                                            .coerceIn(-fabH / 2, screenHeight - fabH / 2)
-                                                        lastFabX = params.x
-                                                        lastFabY = params.y
-                                                        windowManager?.updateViewLayout(frameLayout, params)
-                                                    }
-                                                } else {
-                                                    if (isDrag) {
-                                                        dockToNearestEdge()
-                                                        interactionCount++
-                                                    } else {
-                                                        isMinimized = false
-                                                        interactionCount++
-                                                    }
-                                                    break
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.wrapContentSize()
+                            ) {
+                                AnimatedVisibility(
+                                    visible = detectedCopiedText != null,
+                                    enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }) + scaleIn(initialScale = 0.85f),
+                                    exit = fadeOut() + slideOutVertically(targetOffsetY = { 20 }) + scaleOut(targetScale = 0.85f)
+                                ) {
+                                    val clipText = detectedCopiedText
+                                    if (!clipText.isNullOrBlank()) {
+                                        val previewText = if (clipText.length > 22) clipText.take(22) + "..." else clipText
+                                        Surface(
+                                            onClick = {
+                                                detectedCopiedText = null
+                                                viewModel.showBottomSheet(clipText)
+                                                isMinimized = false
+                                            },
+                                            shape = RoundedCornerShape(20.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            tonalElevation = 6.dp,
+                                            shadowElevation = 8.dp,
+                                            modifier = Modifier
+                                                .padding(bottom = 8.dp)
+                                                .widthIn(max = 280.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.ContentPaste,
+                                                    contentDescription = "Texto copiado",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                                    Text(
+                                                        text = "Traduzir com 1 toque",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.primary,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                    Text(
+                                                        text = "\"$previewText\"",
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                        maxLines = 1
+                                                    )
                                                 }
-                                            } while (event.changes.any { it.pressed })
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ArrowForward,
+                                                            contentDescription = "Ir",
+                                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                IconButton(
+                                                    onClick = { detectedCopiedText = null },
+                                                    modifier = Modifier.size(20.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Fechar badge",
+                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
-                            ) {
-                                Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
+                                }
+
+                                FloatingActionButton(
+                                    onClick = {},
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .graphicsLayer { alpha = floatingIconOpacity }
+                                        .padding(4.dp)
+                                        .pointerInput(Unit) {
+                                            awaitEachGesture {
+                                                val down = awaitFirstDown(requireUnconsumed = false)
+                                                var totalDx = 0f
+                                                var totalDy = 0f
+                                                var isDrag = false
+                                                val touchSlop = viewConfiguration.touchSlop
+
+                                                interactionCount++
+
+                                                do {
+                                                    val event = awaitPointerEvent()
+                                                    val pointerChange = event.changes.find { it.id == down.id } ?: break
+                                                    if (pointerChange.pressed) {
+                                                        val posChange = pointerChange.positionChange()
+                                                        totalDx += posChange.x
+                                                        totalDy += posChange.y
+
+                                                        if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
+                                                            isDrag = true
+                                                        }
+
+                                                        if (isDrag) {
+                                                            pointerChange.consume()
+                                                            val displayMetrics = resources.displayMetrics
+                                                            val screenWidth = displayMetrics.widthPixels
+                                                            val screenHeight = displayMetrics.heightPixels
+                                                            val fabW = if (frameLayout.width > 0) frameLayout.width else 150
+                                                            val fabH = if (frameLayout.height > 0) frameLayout.height else 150
+
+                                                            params.x = (params.x + posChange.x.toInt())
+                                                                .coerceIn(-fabW / 2, screenWidth - fabW / 2)
+                                                            params.y = (params.y + posChange.y.toInt())
+                                                                .coerceIn(-fabH / 2, screenHeight - fabH / 2)
+                                                            lastFabX = params.x
+                                                            lastFabY = params.y
+                                                            windowManager?.updateViewLayout(frameLayout, params)
+                                                        }
+                                                    } else {
+                                                        if (isDrag) {
+                                                            dockToNearestEdge()
+                                                            interactionCount++
+                                                        } else {
+                                                            isMinimized = false
+                                                            interactionCount++
+                                                        }
+                                                        break
+                                                    }
+                                                } while (event.changes.any { it.pressed })
+                                            }
+                                        }
+                                ) {
+                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
+                                }
                             }
                         } else {
                             val dragOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -649,6 +782,82 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
 
                                                                 Spacer(modifier = Modifier.height(16.dp))
 
+                                                     AnimatedVisibility(
+                                                         visible = detectedCopiedText != null,
+                                                         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                                                         exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                                                     ) {
+                                                         val clipText = detectedCopiedText
+                                                         if (!clipText.isNullOrBlank()) {
+                                                             val preview = if (clipText.length > 28) clipText.take(28) + "..." else clipText
+                                                             Surface(
+                                                                 shape = RoundedCornerShape(16.dp),
+                                                                 color = MaterialTheme.colorScheme.secondaryContainer,
+                                                                 modifier = Modifier
+                                                                     .fillMaxWidth()
+                                                                     .padding(bottom = 12.dp)
+                                                             ) {
+                                                                 Row(
+                                                                     modifier = Modifier
+                                                                         .fillMaxWidth()
+                                                                         .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                                     verticalAlignment = Alignment.CenterVertically,
+                                                                     horizontalArrangement = Arrangement.SpaceBetween
+                                                                 ) {
+                                                                     Row(
+                                                                         verticalAlignment = Alignment.CenterVertically,
+                                                                         modifier = Modifier.weight(1f)
+                                                                     ) {
+                                                                         Icon(
+                                                                             imageVector = Icons.Default.ContentPaste,
+                                                                             contentDescription = null,
+                                                                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                             modifier = Modifier.size(20.dp)
+                                                                         )
+                                                                         Spacer(modifier = Modifier.width(8.dp))
+                                                                         Column {
+                                                                             Text(
+                                                                                 text = "Texto Copiado Detectado",
+                                                                                 style = MaterialTheme.typography.labelSmall,
+                                                                                 color = MaterialTheme.colorScheme.secondary,
+                                                                                 fontWeight = FontWeight.Bold
+                                                                             )
+                                                                             Text(
+                                                                                 text = "\"$preview\"",
+                                                                                 style = MaterialTheme.typography.bodyMedium,
+                                                                                 fontWeight = FontWeight.SemiBold,
+                                                                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                                 maxLines = 1
+                                                                             )
+                                                                         }
+                                                                     }
+                                                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                         Button(
+                                                                             onClick = {
+                                                                                 detectedCopiedText = null
+                                                                                 viewModel.showBottomSheet(clipText)
+                                                                             },
+                                                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                                             modifier = Modifier.height(32.dp)
+                                                                         ) {
+                                                                             Text("Consultar", fontSize = 12.sp)
+                                                                         }
+                                                                         IconButton(
+                                                                             onClick = { detectedCopiedText = null },
+                                                                             modifier = Modifier.size(28.dp)
+                                                                         ) {
+                                                                             Icon(
+                                                                                 imageVector = Icons.Default.Close,
+                                                                                 contentDescription = "Fechar",
+                                                                                 modifier = Modifier.size(16.dp)
+                                                                             )
+                                                                         }
+                                                                     }
+                                                                 }
+                                                             }
+                                                         }
+                                                     }
+
                                                                 Row(
                                                                     modifier = Modifier.fillMaxWidth(),
                                                                     horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -728,10 +937,18 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                         stopSelf()
                                                                     }
                                                                 },
+                                                                onBackToSearch = {
+                                                                    viewModel.resetToSearch()
+                                                                },
                                                                 fontSizeSp = floatingFontSize,
                                                                 currentLanguage = targetLanguage,
                                                                 onSelectLanguage = { lang ->
                                                                     viewModel.setTargetLanguage(lang)
+                                                                    viewModel.showBottomSheet(state.result.word)
+                                                                },
+                                                                currentSearchMode = searchMode,
+                                                                onSelectSearchMode = { mode ->
+                                                                    viewModel.setSearchMode(mode)
                                                                     viewModel.showBottomSheet(state.result.word)
                                                                 }
                                                             )

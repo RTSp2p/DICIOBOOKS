@@ -503,6 +503,7 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
     val targetLanguage by viewModel.targetLanguage.collectAsState()
     val searchMode by viewModel.searchMode.collectAsState()
+    val isClipboardListenerEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -842,6 +843,55 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                     ) {
                         Icon(imageVector = Icons.Default.Search, contentDescription = "Pré-visualização do Ícone")
                     }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Leitura Automática da Área de Transferência", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Quando a janela flutuante estiver ativa, ao copiar qualquer texto, o app exibe um mini badge discreto na tela oferecendo significado/tradução instantânea com 1 toque.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.setClipboardListenerEnabled(!isClipboardListenerEnabled) }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.ContentPaste, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                text = "Monitorar Área de Transferência",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (isClipboardListenerEnabled) "Ativado (Badge de 1 toque ativo)" else "Desativado",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isClipboardListenerEnabled,
+                        onCheckedChange = { viewModel.setClipboardListenerEnabled(it) }
+                    )
                 }
             }
 
