@@ -77,6 +77,45 @@ enum class ThemeMode {
 
 class DictionaryViewModel(application: Application) : AndroidViewModel(application) {
     private val prefs = application.getSharedPreferences("dictionary_prefs", android.content.Context.MODE_PRIVATE)
+
+    private val prefChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        when (key) {
+            "theme_mode" -> {
+                _themeMode.value = ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
+            }
+            "has_seen_tutorial" -> {
+                _hasSeenTutorial.value = prefs.getBoolean("has_seen_tutorial", false)
+            }
+            "floating_font_size" -> {
+                _floatingFontSize.value = prefs.getFloat("floating_font_size", 16f)
+            }
+            "floating_icon_opacity" -> {
+                _floatingIconOpacity.value = prefs.getFloat("floating_icon_opacity", 1.0f)
+            }
+            "floating_window_opacity" -> {
+                _floatingWindowOpacity.value = prefs.getFloat("floating_window_opacity", 0.95f)
+            }
+            "target_language" -> {
+                _targetLanguage.value = TranslationLanguage.fromCode(prefs.getString("target_language", TranslationLanguage.PORTUGUESE.code))
+            }
+            "search_mode" -> {
+                _searchMode.value = SearchMode.fromName(prefs.getString("search_mode", SearchMode.MEANING.name))
+            }
+            "is_clipboard_listener_enabled" -> {
+                _isClipboardListenerEnabled.value = prefs.getBoolean("is_clipboard_listener_enabled", true)
+            }
+        }
+    }
+
+    init {
+        prefs.registerOnSharedPreferenceChangeListener(prefChangeListener)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        prefs.unregisterOnSharedPreferenceChangeListener(prefChangeListener)
+    }
+
     private val _themeMode = MutableStateFlow(
         ThemeMode.valueOf(prefs.getString("theme_mode", ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
     )
@@ -114,6 +153,15 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         val clamped = opacity.coerceIn(0.2f, 1.0f)
         prefs.edit().putFloat("floating_icon_opacity", clamped).apply()
         _floatingIconOpacity.value = clamped
+    }
+
+    private val _floatingWindowOpacity = MutableStateFlow(prefs.getFloat("floating_window_opacity", 0.95f))
+    val floatingWindowOpacity: StateFlow<Float> = _floatingWindowOpacity.asStateFlow()
+
+    fun setFloatingWindowOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.2f, 1.0f)
+        prefs.edit().putFloat("floating_window_opacity", clamped).apply()
+        _floatingWindowOpacity.value = clamped
     }
 
     private val _targetLanguage = MutableStateFlow(

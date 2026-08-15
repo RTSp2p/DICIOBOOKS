@@ -501,6 +501,7 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val themeMode by viewModel.themeMode.collectAsState()
     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
+    val floatingWindowOpacity by viewModel.floatingWindowOpacity.collectAsState()
     val targetLanguage by viewModel.targetLanguage.collectAsState()
     val searchMode by viewModel.searchMode.collectAsState()
     val isClipboardListenerEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
@@ -744,7 +745,9 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
             Spacer(Modifier.height(12.dp))
 
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = floatingWindowOpacity },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
@@ -783,10 +786,10 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
 
-            Text("Opacidade do Ícone Flutuante", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Text("Opacidade da Janela Flutuante", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Ajuste a transparência do ícone flutuante minimizado para reduzir distrações visuais enquanto lê ou navega.",
+                "Ajuste a transparência do painel da janela flutuante quando ela estiver aberta sobre outros aplicativos.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -798,7 +801,43 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "Opacidade: ${(floatingIconOpacity * 100).toInt()}%",
+                    "Opacidade da Janela: ${(floatingWindowOpacity * 100).toInt()}%",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                TextButton(onClick = { viewModel.setFloatingWindowOpacity(1.0f) }) {
+                    Text("Redefinir (100%)")
+                }
+            }
+
+            Slider(
+                value = floatingWindowOpacity,
+                onValueChange = { viewModel.setFloatingWindowOpacity(it) },
+                valueRange = 0.2f..1.0f,
+                steps = 7,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Opacidade do Ícone Flutuante", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Ajuste a transparência do ícone flutuante minimizado (fechado) para reduzir distrações visuais enquanto lê ou navega.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Opacidade do Ícone: ${(floatingIconOpacity * 100).toInt()}%",
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold
                 )

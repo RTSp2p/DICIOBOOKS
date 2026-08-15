@@ -19,6 +19,9 @@ import androidx.compose.runtime.*
 import androidx.compose.animation.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import androidx.compose.material.icons.filled.CloseFullscreen
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.OpenWith
@@ -65,6 +68,13 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import android.content.ClipboardManager
 import androidx.compose.ui.text.font.FontWeight
+import android.view.MotionEvent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.gestures.detectTapGestures
 import com.example.ui.theme.MyApplicationTheme
 import java.util.Locale
 
@@ -125,9 +135,39 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
     private lateinit var viewModel: DictionaryViewModel
     private var tts: TextToSpeech? = null
 
+    private val detectedCopiedTextFlow = MutableStateFlow<String?>(null)
+    private var lastHandledClipText: String? = null
+    private var clipboardManager: ClipboardManager? = null
+    private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
+    private var clipPollingJob: kotlinx.coroutines.Job? = null
+    private var isMinimizedState: MutableState<Boolean>? = null
+
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
     override val viewModelStore: ViewModelStore get() = store
+
+    fun checkClipboard() {
+        val prefs = getSharedPreferences("dictionary_prefs", MODE_PRIVATE)
+        val isClipboardEnabled = prefs.getBoolean("is_clipboard_listener_enabled", true)
+        if (!isClipboardEnabled) return
+        try {
+            val cm = clipboardManager ?: (getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager)?.also { clipboardManager = it }
+            if (cm != null && cm.hasPrimaryClip()) {
+                val clip = cm.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val item = clip.getItemAt(0)
+                    val rawText = (item.text?.toString() ?: item.coerceToText(this)?.toString())?.trim()
+                    if (!rawText.isNullOrBlank() && rawText != lastHandledClipText && rawText.length in 1..300) {
+                        lastHandledClipText = rawText
+                        detectedCopiedTextFlow.value = rawText
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Handled for background privacy constraints on Android 10+
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -142,6 +182,19 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                 tts?.language = Locale("pt", "BR")
             }
         }
+
+        clipboardManager = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
+        clipListener = ClipboardManager.OnPrimaryClipChangedListener {
+            checkClipboard()
+        }
+        clipListener?.let { clipboardManager?.addPrimaryClipChangedListener(it) }
+
+        clipPollingJob = serviceScope.launch {
+            while (true) {
+                delay(1200L)
+                checkClipboard()
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -151,6 +204,19 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         }
         
         val word = intent?.getStringExtra("EXTRA_WORD")
+        val copiedText = intent?.getStringExtra("EXTRA_COPIED_TEXT")
+
+        if (!copiedText.isNullOrBlank()) {
+            lastHandledClipText = copiedText.trim()
+            detectedCopiedTextFlow.value = copiedText.trim()
+        }
+
+        if (!word.isNullOrBlank()) {
+            isMinimizedState?.value = false
+            viewModel.showBottomSheet(word)
+        }
+
+        checkClipboard()
         showFloatingWindow(word)
         return START_NOT_STICKY
     }
@@ -161,10 +227,13 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         if (composeView != null) {
             // Already showing, just update word if provided
             if (word != null) {
+                isMinimizedState?.value = false
                 viewModel.showBottomSheet(word)
             }
             return
         }
+
+        var onOutsideTouchAction: (() -> Unit)? = null
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -173,15 +242,23 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_DIM_BEHIND or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            dimAmount = 0.5f
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
-
-        val frameLayout = FrameLayout(this)
+        // Listener para detectar toques fora e restaurar FLAG_NOT_FOCUSABLE
+        val frameLayout = FrameLayout(this).apply {
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_OUTSIDE) {
+                    onOutsideTouchAction?.invoke()
+                }
+                false
+            }
+        }
 
         
         frameLayout.setViewTreeLifecycleOwner(this)
@@ -202,57 +279,55 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     com.example.ThemeMode.DARK -> true
                 }
                 MyApplicationTheme(darkTheme = darkTheme) {
+                    // Injeção do gerenciador de foco e requester no Compose
+                    val focusManager = LocalFocusManager.current
+                    val focusRequester = remember { FocusRequester() }
+
+                    // Callback acionado ao tocar fora da janela flutuante
+                    DisposableEffect(Unit) {
+                        onOutsideTouchAction = {
+                            focusManager.clearFocus(force = true) // Limpa o foco no Compose
+                            if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
+                                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                                windowManager?.updateViewLayout(frameLayout, params)
+                            }
+                        }
+                        onDispose {
+                            onOutsideTouchAction = null
+                        }
+                    }
 
                     val uiState by viewModel.uiState.collectAsState()
                     val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
                     val floatingFontSize by viewModel.floatingFontSize.collectAsState()
                     val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
+                    val floatingWindowOpacity by viewModel.floatingWindowOpacity.collectAsState()
                     val targetLanguage by viewModel.targetLanguage.collectAsState()
                     val searchMode by viewModel.searchMode.collectAsState()
                     val isClipboardEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
 
-                    var detectedCopiedText by remember { mutableStateOf<String?>(null) }
-                    var lastHandledClipText by remember { mutableStateOf<String?>(null) }
-
-                    val clipboardManager = remember { getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager }
-
-                    DisposableEffect(isClipboardEnabled, clipboardManager) {
-                        if (!isClipboardEnabled || clipboardManager == null) {
-                            onDispose { }
-                        } else {
-                            val listener = ClipboardManager.OnPrimaryClipChangedListener {
-                                try {
-                                    if (clipboardManager.hasPrimaryClip()) {
-                                        val clip = clipboardManager.primaryClip
-                                        if (clip != null && clip.itemCount > 0) {
-                                            val item = clip.getItemAt(0)
-                                            val rawText = (item.text?.toString() ?: item.coerceToText(this@FloatingDictionaryService)?.toString())?.trim()
-                                            if (!rawText.isNullOrBlank() && rawText != lastHandledClipText && rawText.length in 1..300) {
-                                                lastHandledClipText = rawText
-                                                detectedCopiedText = rawText
-                                            }
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    // SecurityException handled if background clipboard access is restricted on OS
-                                }
-                            }
-                            clipboardManager.addPrimaryClipChangedListener(listener)
-                            onDispose {
-                                clipboardManager.removePrimaryClipChangedListener(listener)
-                            }
-                        }
-                    }
+                    val detectedCopiedText by detectedCopiedTextFlow.collectAsState()
 
                     LaunchedEffect(detectedCopiedText) {
                         if (detectedCopiedText != null) {
-                            delay(9000L)
-                            detectedCopiedText = null
+                            delay(10000L)
+                            detectedCopiedTextFlow.value = null
                         }
                     }
 
                     var isVisible by remember { mutableStateOf(false) }
                     var isMinimized by remember { mutableStateOf(word == null) }
+                    val minimizedHolder = remember { mutableStateOf(isMinimized) }
+                    isMinimizedState = minimizedHolder
+
+                    DisposableEffect(isMinimized) {
+                        minimizedHolder.value = isMinimized
+                        if (!isMinimized) {
+                            checkClipboard()
+                        }
+                        onDispose { }
+                    }
+
                     val scope = rememberCoroutineScope()
                     
                     LaunchedEffect(Unit) {
@@ -278,8 +353,9 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                     LaunchedEffect(isMinimized) {
                         if (isMinimized) {
                             delay(200L)
-                            params.flags = params.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
-                            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                                           WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                             params.width = WindowManager.LayoutParams.WRAP_CONTENT
                             params.height = WindowManager.LayoutParams.WRAP_CONTENT
                             params.gravity = Gravity.TOP or Gravity.START
@@ -287,8 +363,9 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                             params.y = lastFabY
                             windowManager?.updateViewLayout(frameLayout, params)
                         } else {
-                            params.flags = params.flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
-                            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                                           WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                             params.width = WindowManager.LayoutParams.MATCH_PARENT
                             params.height = WindowManager.LayoutParams.WRAP_CONTENT
                             params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
@@ -397,7 +474,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                         val previewText = if (clipText.length > 22) clipText.take(22) + "..." else clipText
                                         Surface(
                                             onClick = {
-                                                detectedCopiedText = null
+                                                detectedCopiedTextFlow.value = null
                                                 viewModel.showBottomSheet(clipText)
                                                 isMinimized = false
                                             },
@@ -422,7 +499,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Column(modifier = Modifier.weight(1f, fill = false)) {
                                                     Text(
-                                                        text = "Traduzir com 1 toque",
+                                                        text = "Pesquisar agora?",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = MaterialTheme.colorScheme.primary,
                                                         fontWeight = FontWeight.Bold
@@ -452,7 +529,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                 }
                                                 Spacer(modifier = Modifier.width(4.dp))
                                                 IconButton(
-                                                    onClick = { detectedCopiedText = null },
+                                                    onClick = { detectedCopiedTextFlow.value = null },
                                                     modifier = Modifier.size(20.dp)
                                                 ) {
                                                     Icon(
@@ -476,6 +553,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                         .pointerInput(Unit) {
                                             awaitEachGesture {
                                                 val down = awaitFirstDown(requireUnconsumed = false)
+                                                checkClipboard()
                                                 var totalDx = 0f
                                                 var totalDy = 0f
                                                 var isDrag = false
@@ -517,6 +595,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                             interactionCount++
                                                         } else {
                                                             isMinimized = false
+                                                            checkClipboard()
                                                             interactionCount++
                                                         }
                                                         break
@@ -545,7 +624,8 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                         .graphicsLayer {
                                             translationX = dragOffsetX.value
                                             val absX = kotlin.math.abs(dragOffsetX.value)
-                                            alpha = (1f - (absX / (dismissThresholdPx * 2f))).coerceIn(0.15f, 1f)
+                                            val dragAlpha = (1f - (absX / (dismissThresholdPx * 2f))).coerceIn(0.15f, 1f)
+                                            alpha = dragAlpha * floatingWindowOpacity
                                         },
                                     shape = RoundedCornerShape(28.dp),
                                     color = MaterialTheme.colorScheme.surfaceContainer,
@@ -755,6 +835,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
 
                                                                 Spacer(modifier = Modifier.height(12.dp))
 
+                                                                // OutlinedTextField com recuperação instantânea de foco ao toque
                                                                 OutlinedTextField(
                                                                     value = textToSearch,
                                                                     onValueChange = { textToSearch = it },
@@ -777,7 +858,34 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                         )
                                                                     },
                                                                     singleLine = true,
-                                                                    modifier = Modifier.fillMaxWidth()
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .focusRequester(focusRequester)
+                                                                        .pointerInput(Unit) {
+                                                                            awaitEachGesture {
+                                                                                awaitFirstDown(pass = PointerEventPass.Initial)
+                                                                                checkClipboard()
+                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
+                                                                                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                                                                                    windowManager?.updateViewLayout(frameLayout, params)
+                                                                                }
+                                                                                focusRequester.requestFocus()
+                                                                            }
+                                                                        }
+                                                                        .onFocusChanged { focusState ->
+                                                                            if (focusState.isFocused) {
+                                                                                checkClipboard()
+                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
+                                                                                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
+                                                                                    windowManager?.updateViewLayout(frameLayout, params)
+                                                                                }
+                                                                            } else {
+                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
+                                                                                    params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                                                                                    windowManager?.updateViewLayout(frameLayout, params)
+                                                                                }
+                                                                            }
+                                                                        }
                                                                 )
 
                                                                 Spacer(modifier = Modifier.height(16.dp))
@@ -834,8 +942,9 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                      Row(verticalAlignment = Alignment.CenterVertically) {
                                                                          Button(
                                                                              onClick = {
-                                                                                 detectedCopiedText = null
-                                                                                 viewModel.showBottomSheet(clipText)
+                                                                                 val textToSearch = clipText
+                                                                                 detectedCopiedTextFlow.value = null
+                                                                                 viewModel.showBottomSheet(textToSearch)
                                                                              },
                                                                              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                                                              modifier = Modifier.height(32.dp)
@@ -843,7 +952,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                                                                              Text("Consultar", fontSize = 12.sp)
                                                                          }
                                                                          IconButton(
-                                                                             onClick = { detectedCopiedText = null },
+                                                                             onClick = { detectedCopiedTextFlow.value = null },
                                                                              modifier = Modifier.size(28.dp)
                                                                          ) {
                                                                              Icon(
@@ -1076,6 +1185,10 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         
+        clipPollingJob?.cancel()
+        serviceScope.cancel()
+        clipListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
+
         store.clear()
         tts?.stop()
         tts?.shutdown()
