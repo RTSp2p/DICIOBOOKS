@@ -1,129 +1,43 @@
 package com.example.service
 
 import android.app.Service
+import android.content.ClipboardManager
 import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.animation.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import androidx.compose.material.icons.filled.CloseFullscreen
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.OpenWith
-import androidx.compose.material.icons.filled.BrightnessAuto
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.Icons
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.sp
-import androidx.compose.animation.core.*
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.Modifier
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.unit.IntSize
-import androidx.lifecycle.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
-import com.example.DictionaryUiState
 import com.example.DictionaryViewModel
-import com.example.DictionaryResultContent
-import com.example.data.SearchMode
-import com.example.data.TranslationLanguage
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
-import android.content.ClipboardManager
-import androidx.compose.ui.text.font.FontWeight
-import android.view.MotionEvent
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.foundation.gestures.detectTapGestures
-import com.example.ui.theme.MyApplicationTheme
+import com.example.service.floating.FloatingWindowContent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import java.util.Locale
-
-@Composable
-fun ProcessingIndicator() {
-    var isAnimating by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) {
-            isAnimating = !isAnimating
-            kotlinx.coroutines.delay(800)
-        }
-    }
-    
-    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isAnimating) 1.2f else 0.8f,
-        animationSpec = androidx.compose.animation.core.tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    )
-    
-    val animatedAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isAnimating) 1f else 0.3f,
-        animationSpec = androidx.compose.animation.core.tween(800, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-    )
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .scale(animatedScale).alpha(animatedAlpha),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Processando...",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Pesquisando...",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = animatedAlpha),
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-        )
-    }
-}
 
 class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryOwner, ViewModelStoreOwner {
     private val lifecycleRegistry = LifecycleRegistry(this)
@@ -139,9 +53,10 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
     private var lastHandledClipText: String? = null
     private var clipboardManager: ClipboardManager? = null
     private var clipListener: ClipboardManager.OnPrimaryClipChangedListener? = null
-    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
-    private var clipPollingJob: kotlinx.coroutines.Job? = null
-    private var isMinimizedState: MutableState<Boolean>? = null
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var clipPollingJob: Job? = null
+    private val isMinimizedStateRef = mutableStateOf<MutableState<Boolean>?>(null)
+    private var onOutsideTouchAction: (() -> Unit)? = null
 
     override val lifecycle: Lifecycle get() = lifecycleRegistry
     override val savedStateRegistry: SavedStateRegistry get() = savedStateRegistryController.savedStateRegistry
@@ -174,8 +89,11 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         savedStateRegistryController.performRestore(null)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        
-        viewModel = ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory.getInstance(application))[DictionaryViewModel::class.java]
+
+        viewModel = ViewModelProvider(
+            this,
+            ViewModelProvider.AndroidViewModelFactory.getInstance(application)
+        )[DictionaryViewModel::class.java]
 
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
@@ -202,7 +120,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
-        
+
         val word = intent?.getStringExtra("EXTRA_WORD")
         val copiedText = intent?.getStringExtra("EXTRA_COPIED_TEXT")
 
@@ -212,7 +130,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         }
 
         if (!word.isNullOrBlank()) {
-            isMinimizedState?.value = false
+            isMinimizedStateRef.value?.value = false
             viewModel.showBottomSheet(word)
         }
 
@@ -225,15 +143,12 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
 
     private fun showFloatingWindow(word: String?) {
         if (composeView != null) {
-            // Already showing, just update word if provided
             if (word != null) {
-                isMinimizedState?.value = false
+                isMinimizedStateRef.value?.value = false
                 viewModel.showBottomSheet(word)
             }
             return
         }
-
-        var onOutsideTouchAction: (() -> Unit)? = null
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -243,14 +158,14 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
-        // Listener para detectar toques fora e restaurar FLAG_NOT_FOCUSABLE
+
         val frameLayout = FrameLayout(this).apply {
             setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_OUTSIDE) {
@@ -260,921 +175,36 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
             }
         }
 
-        
         frameLayout.setViewTreeLifecycleOwner(this)
         frameLayout.setViewTreeSavedStateRegistryOwner(this)
         frameLayout.setViewTreeViewModelStoreOwner(this)
-        
+
         if (word != null) {
             viewModel.showBottomSheet(word)
         }
 
         val view = ComposeView(this).apply {
             setContent {
-                
-                val themeMode by viewModel.themeMode.collectAsState()
-                val darkTheme = when (themeMode) {
-                    com.example.ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
-                    com.example.ThemeMode.LIGHT -> false
-                    com.example.ThemeMode.DARK -> true
-                }
-                MyApplicationTheme(darkTheme = darkTheme) {
-                    // Injeção do gerenciador de foco e requester no Compose
-                    val focusManager = LocalFocusManager.current
-                    val focusRequester = remember { FocusRequester() }
-
-                    // Callback acionado ao tocar fora da janela flutuante
-                    DisposableEffect(Unit) {
-                        onOutsideTouchAction = {
-                            focusManager.clearFocus(force = true) // Limpa o foco no Compose
-                            if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
-                                params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                                windowManager?.updateViewLayout(frameLayout, params)
-                            }
-                        }
-                        onDispose {
-                            onOutsideTouchAction = null
-                        }
+                FloatingWindowContent(
+                    viewModel = viewModel,
+                    tts = tts,
+                    params = params,
+                    frameLayout = frameLayout,
+                    windowManager = windowManager,
+                    resources = resources,
+                    detectedCopiedTextFlow = detectedCopiedTextFlow,
+                    initialWord = word,
+                    isMinimizedStateRef = isMinimizedStateRef,
+                    onCheckClipboard = { checkClipboard() },
+                    onStopService = { stopSelf() },
+                    registerOutsideTouchHandler = { handler ->
+                        onOutsideTouchAction = handler
                     }
-
-                    val uiState by viewModel.uiState.collectAsState()
-                    val isCurrentWordFavorite by viewModel.isCurrentWordFavorite.collectAsState()
-                    val floatingFontSize by viewModel.floatingFontSize.collectAsState()
-                    val floatingIconOpacity by viewModel.floatingIconOpacity.collectAsState()
-                    val floatingWindowOpacity by viewModel.floatingWindowOpacity.collectAsState()
-                    val targetLanguage by viewModel.targetLanguage.collectAsState()
-                    val searchMode by viewModel.searchMode.collectAsState()
-                    val isClipboardEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
-
-                    val detectedCopiedText by detectedCopiedTextFlow.collectAsState()
-
-                    LaunchedEffect(detectedCopiedText) {
-                        if (detectedCopiedText != null) {
-                            delay(10000L)
-                            detectedCopiedTextFlow.value = null
-                        }
-                    }
-
-                    var isVisible by remember { mutableStateOf(false) }
-                    var isMinimized by remember { mutableStateOf(word == null) }
-                    val minimizedHolder = remember { mutableStateOf(isMinimized) }
-                    isMinimizedState = minimizedHolder
-
-                    DisposableEffect(isMinimized) {
-                        minimizedHolder.value = isMinimized
-                        if (!isMinimized) {
-                            checkClipboard()
-                        }
-                        onDispose { }
-                    }
-
-                    val scope = rememberCoroutineScope()
-                    
-                    LaunchedEffect(Unit) {
-                        isVisible = true
-                    }
-
-                    LaunchedEffect(targetLanguage) {
-                        tts?.language = targetLanguage.locale
-                    }
-
-                    val displayMetrics = resources.displayMetrics
-                    val screenWidth = displayMetrics.widthPixels
-                    val screenHeight = displayMetrics.heightPixels
-                    val initialFabW = if (frameLayout.width > 0) frameLayout.width else 150
-                    val initialFabH = if (frameLayout.height > 0) frameLayout.height else 150
-
-                    val initialFabX = (screenWidth - initialFabW) / 2
-                    val initialFabY = screenHeight - initialFabH / 2
-
-                    var lastFabX by remember { mutableIntStateOf(initialFabX) }
-                    var lastFabY by remember { mutableIntStateOf(initialFabY) }
-
-                    LaunchedEffect(isMinimized) {
-                        if (isMinimized) {
-                            delay(200L)
-                            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                                           WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                            params.width = WindowManager.LayoutParams.WRAP_CONTENT
-                            params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                            params.gravity = Gravity.TOP or Gravity.START
-                            params.x = lastFabX
-                            params.y = lastFabY
-                            windowManager?.updateViewLayout(frameLayout, params)
-                        } else {
-                            params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                           WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                                           WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
-                            params.width = WindowManager.LayoutParams.MATCH_PARENT
-                            params.height = WindowManager.LayoutParams.WRAP_CONTENT
-                            params.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                            params.x = 0
-                            params.y = 0
-                            windowManager?.updateViewLayout(frameLayout, params)
-                        }
-                    }
-                    
-                    var interactionCount by remember { mutableIntStateOf(0) }
-
-                    fun dockToNearestEdge() {
-                        val metrics = resources.displayMetrics
-                        val sWidth = metrics.widthPixels
-                        val sHeight = metrics.heightPixels
-                        val fabW = if (frameLayout.width > 0) frameLayout.width else 150
-                        val fabH = if (frameLayout.height > 0) frameLayout.height else 150
-
-                        val maxUsableX = (sWidth - fabW).coerceAtLeast(0)
-                        val maxUsableY = (sHeight - fabH).coerceAtLeast(0)
-
-                        val currentX = params.x
-                        val currentY = params.y
-
-                        // Compute targets for docking with half the icon visible:
-                        val leftTargetX = -fabW / 2
-                        val leftTargetY = currentY.coerceIn(0, maxUsableY)
-                        val distLeft = kotlin.math.abs(currentX - leftTargetX)
-
-                        val rightTargetX = sWidth - fabW / 2
-                        val rightTargetY = currentY.coerceIn(0, maxUsableY)
-                        val distRight = kotlin.math.abs(currentX - rightTargetX)
-
-                        val topTargetX = currentX.coerceIn(0, maxUsableX)
-                        val topTargetY = -fabH / 2
-                        val distTop = kotlin.math.abs(currentY - topTargetY)
-
-                        val bottomTargetX = currentX.coerceIn(0, maxUsableX)
-                        val bottomTargetY = sHeight - fabH / 2
-                        val distBottom = kotlin.math.abs(currentY - bottomTargetY)
-
-                        val minDist = minOf(distLeft, distRight, distTop, distBottom)
-
-                        when (minDist) {
-                            distLeft -> {
-                                params.x = leftTargetX
-                                params.y = leftTargetY
-                            }
-                            distRight -> {
-                                params.x = rightTargetX
-                                params.y = rightTargetY
-                            }
-                            distTop -> {
-                                params.x = topTargetX
-                                params.y = topTargetY
-                            }
-                            distBottom -> {
-                                params.x = bottomTargetX
-                                params.y = bottomTargetY
-                            }
-                        }
-                        lastFabX = params.x
-                        lastFabY = params.y
-                        windowManager?.updateViewLayout(frameLayout, params)
-                    }
-
-                    LaunchedEffect(isMinimized, interactionCount) {
-                        if (isMinimized) {
-                            delay(60000L)
-                            dockToNearestEdge()
-                        }
-                    }
-
-                    AnimatedContent(
-                        targetState = isMinimized,
-                        transitionSpec = {
-                            if (targetState) {
-                                (fadeIn(animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing)) +
-                                 scaleIn(initialScale = 0.6f, animationSpec = tween(durationMillis = 200))) togetherWith
-                                (fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutLinearInEasing)) +
-                                 slideOutVertically(targetOffsetY = { it / 2 }, animationSpec = tween(durationMillis = 180)) +
-                                 scaleOut(targetScale = 0.92f, animationSpec = tween(durationMillis = 180)))
-                            } else {
-                                (fadeIn(animationSpec = tween(durationMillis = 250, easing = LinearOutSlowInEasing)) +
-                                 slideInVertically(initialOffsetY = { it / 2 }, animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)) +
-                                 scaleIn(initialScale = 0.92f, animationSpec = tween(durationMillis = 250))) togetherWith
-                                (fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutLinearInEasing)) +
-                                 scaleOut(targetScale = 0.6f, animationSpec = tween(durationMillis = 150)))
-                            }
-                        },
-                        label = "FloatingWindowTransition"
-                    ) { minimized ->
-                        if (minimized) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.wrapContentSize()
-                            ) {
-                                AnimatedVisibility(
-                                    visible = detectedCopiedText != null,
-                                    enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }) + scaleIn(initialScale = 0.85f),
-                                    exit = fadeOut() + slideOutVertically(targetOffsetY = { 20 }) + scaleOut(targetScale = 0.85f)
-                                ) {
-                                    val clipText = detectedCopiedText
-                                    if (!clipText.isNullOrBlank()) {
-                                        val previewText = if (clipText.length > 22) clipText.take(22) + "..." else clipText
-                                        Surface(
-                                            onClick = {
-                                                detectedCopiedTextFlow.value = null
-                                                viewModel.showBottomSheet(clipText)
-                                                isMinimized = false
-                                            },
-                                            shape = RoundedCornerShape(20.dp),
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                            tonalElevation = 6.dp,
-                                            shadowElevation = 8.dp,
-                                            modifier = Modifier
-                                                .padding(bottom = 8.dp)
-                                                .widthIn(max = 280.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.ContentPaste,
-                                                    contentDescription = "Texto copiado",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Column(modifier = Modifier.weight(1f, fill = false)) {
-                                                    Text(
-                                                        text = "Pesquisar agora?",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                    Text(
-                                                        text = "\"$previewText\"",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                        maxLines = 1
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.ArrowForward,
-                                                            contentDescription = "Ir",
-                                                            tint = MaterialTheme.colorScheme.onPrimary,
-                                                            modifier = Modifier.size(12.dp)
-                                                        )
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                IconButton(
-                                                    onClick = { detectedCopiedTextFlow.value = null },
-                                                    modifier = Modifier.size(20.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Fechar badge",
-                                                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                FloatingActionButton(
-                                    onClick = {},
-                                    shape = CircleShape,
-                                    modifier = Modifier
-                                        .graphicsLayer { alpha = floatingIconOpacity }
-                                        .padding(4.dp)
-                                        .pointerInput(Unit) {
-                                            awaitEachGesture {
-                                                val down = awaitFirstDown(requireUnconsumed = false)
-                                                checkClipboard()
-                                                var totalDx = 0f
-                                                var totalDy = 0f
-                                                var isDrag = false
-                                                val touchSlop = viewConfiguration.touchSlop
-
-                                                interactionCount++
-
-                                                do {
-                                                    val event = awaitPointerEvent()
-                                                    val pointerChange = event.changes.find { it.id == down.id } ?: break
-                                                    if (pointerChange.pressed) {
-                                                        val posChange = pointerChange.positionChange()
-                                                        totalDx += posChange.x
-                                                        totalDy += posChange.y
-
-                                                        if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
-                                                            isDrag = true
-                                                        }
-
-                                                        if (isDrag) {
-                                                            pointerChange.consume()
-                                                            val displayMetrics = resources.displayMetrics
-                                                            val screenWidth = displayMetrics.widthPixels
-                                                            val screenHeight = displayMetrics.heightPixels
-                                                            val fabW = if (frameLayout.width > 0) frameLayout.width else 150
-                                                            val fabH = if (frameLayout.height > 0) frameLayout.height else 150
-
-                                                            params.x = (params.x + posChange.x.toInt())
-                                                                .coerceIn(-fabW / 2, screenWidth - fabW / 2)
-                                                            params.y = (params.y + posChange.y.toInt())
-                                                                .coerceIn(-fabH / 2, screenHeight - fabH / 2)
-                                                            lastFabX = params.x
-                                                            lastFabY = params.y
-                                                            windowManager?.updateViewLayout(frameLayout, params)
-                                                        }
-                                                    } else {
-                                                        if (isDrag) {
-                                                            dockToNearestEdge()
-                                                            interactionCount++
-                                                        } else {
-                                                            isMinimized = false
-                                                            checkClipboard()
-                                                            interactionCount++
-                                                        }
-                                                        break
-                                                    }
-                                                } while (event.changes.any { it.pressed })
-                                            }
-                                        }
-                                ) {
-                                    Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
-                                }
-                            }
-                        } else {
-                            val dragOffsetX = remember { androidx.compose.animation.core.Animatable(0f) }
-                            val density = LocalDensity.current
-                            val dismissThresholdPx = with(density) { 150.dp.toPx() } // distância do arrasto até fechar ( fecha mais rapido > valor > demora mais)
-
-                            AnimatedVisibility(
-                                visible = isVisible,
-                                enter = androidx.compose.animation.slideInVertically(initialOffsetY = { it }) + androidx.compose.animation.fadeIn(),
-                                exit = androidx.compose.animation.slideOutVertically(targetOffsetY = { it }) + androidx.compose.animation.fadeOut()
-                            ) {
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 200.dp)
-                                        .graphicsLayer {
-                                            translationX = dragOffsetX.value
-                                            val absX = kotlin.math.abs(dragOffsetX.value)
-                                            val dragAlpha = (1f - (absX / (dismissThresholdPx * 2f))).coerceIn(0.15f, 1f)
-                                            alpha = dragAlpha * floatingWindowOpacity
-                                        },
-                                    shape = RoundedCornerShape(28.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainer,
-                                    shadowElevation = 16.dp
-                                ) {
-                                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                                        val scale = (maxWidth / 400.dp).coerceIn(0.5f, 1f)
-                                        val currentDensity = LocalDensity.current
-                                        val newDensity = Density(currentDensity.density * scale, currentDensity.fontScale * scale)
-                                        
-                                        CompositionLocalProvider(LocalDensity provides newDensity) {
-                                            Box(modifier = Modifier.fillMaxWidth()) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(horizontal = 24.dp, vertical = 16.dp)
-                                                        .windowInsetsPadding(WindowInsets.navigationBars)
-                                                        .imePadding()
-                                                        .verticalScroll(rememberScrollState())
-                                                ) {
-                                                    // Drag handle with horizontal swipe to dismiss gesture and vertical window move
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .pointerInput(Unit) {
-                                                                detectDragGestures(
-                                                                    onDragEnd = {
-                                                                        val currentOffsetX = dragOffsetX.value
-                                                                        if (kotlin.math.abs(currentOffsetX) > dismissThresholdPx) {
-                                                                            scope.launch {
-                                                                                val screenWidth = resources.displayMetrics.widthPixels.toFloat()
-                                                                                val targetX = if (currentOffsetX > 0) currentOffsetX + screenWidth else currentOffsetX - screenWidth
-                                                                                launch { dragOffsetX.animateTo(targetX, tween(200)) }
-                                                                                isVisible = false
-                                                                                delay(220)
-                                                                                stopSelf()
-                                                                            }
-                                                                        } else {
-                                                                            scope.launch {
-                                                                                dragOffsetX.animateTo(0f, spring(stiffness = Spring.StiffnessMediumLow))
-                                                                            }
-                                                                        }
-                                                                    },
-                                                                    onDragCancel = {
-                                                                        scope.launch {
-                                                                            dragOffsetX.animateTo(0f)
-                                                                        }
-                                                                    },
-                                                                    onDrag = { change, dragAmount ->
-                                                                        change.consume()
-                                                                        val displayMetrics = resources.displayMetrics
-                                                                        val screenWidth = displayMetrics.widthPixels
-                                                                        val screenHeight = displayMetrics.heightPixels
-
-                                                                        val currentW = if (frameLayout.width > 0) frameLayout.width else (if (params.width > 0 && params.width != WindowManager.LayoutParams.MATCH_PARENT) params.width else screenWidth)
-                                                                        val currentH = if (frameLayout.height > 0) frameLayout.height else (if (params.height > 0 && params.height != WindowManager.LayoutParams.WRAP_CONTENT) params.height else 400)
-
-                                                                        val maxDeltaX = ((screenWidth - currentW) / 2).coerceAtLeast(0)
-                                                                        val maxY = (screenHeight - currentH).coerceAtLeast(0)
-
-                                                                        // Movimento vertical (params.y) delimitado pelas bordas superior e inferior da tela
-                                                                        if (kotlin.math.abs(dragAmount.y) > 0.5f) {
-                                                                            params.y = (params.y - dragAmount.y.toInt()).coerceIn(0, maxY)
-                                                                        }
-                                                                        // Movimento horizontal (params.x) se a janela for menor que a tela
-                                                                        if (kotlin.math.abs(dragAmount.x) > 0.5f && maxDeltaX > 0) {
-                                                                            params.x = (params.x + dragAmount.x.toInt()).coerceIn(-maxDeltaX, maxDeltaX)
-                                                                        }
-                                                                        windowManager?.updateViewLayout(frameLayout, params)
-
-                                                                        // Movimento horizontal acumula o deslocamento para fechar por deslizamento
-                                                                        scope.launch {
-                                                                            dragOffsetX.snapTo(dragOffsetX.value + dragAmount.x)
-                                                                        }
-                                                                    }
-                                                                )
-                                                            },
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Column(
-                                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                                            modifier = Modifier.padding(vertical = 4.dp)
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .width(36.dp)
-                                                                    .height(5.dp)
-                                                                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(50))
-                                                            )
-                                                            Spacer(modifier = Modifier.height(2.dp))
-                                                            Text(
-                                                                text = "◄ Deslize para fechar ►",
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                                            )
-                                                        }
-                                                    }
-                                                    
-                                                    Spacer(modifier = Modifier.height(16.dp))
-                                                    
-                                                    when (val state = uiState) {
-                                                        is DictionaryUiState.Idle -> {
-                                                            var textToSearch by remember { mutableStateOf("") }
-                                                            var languageMenuExpanded by remember { mutableStateOf(false) }
-
-                                                            Column(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .padding(vertical = 8.dp),
-                                                                horizontalAlignment = Alignment.CenterHorizontally
-                                                            ) {
-                                                                // Mode Toggle Selector
-                                                                Text(
-                                                                    text = "Modo de Consulta",
-                                                                    style = MaterialTheme.typography.labelMedium,
-                                                                    color = MaterialTheme.colorScheme.primary,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.align(Alignment.Start)
-                                                                )
-                                                                Spacer(modifier = Modifier.height(6.dp))
-                                                                Row(
-                                                                    modifier = Modifier.fillMaxWidth(),
-                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                                ) {
-                                                                    FilterChip(
-                                                                        selected = searchMode == SearchMode.MEANING,
-                                                                        onClick = { viewModel.setSearchMode(SearchMode.MEANING) },
-                                                                        label = { Text("Significado") },
-                                                                        leadingIcon = {
-                                                                            Icon(
-                                                                                imageVector = Icons.Default.Book,
-                                                                                contentDescription = null,
-                                                                                modifier = Modifier.size(16.dp)
-                                                                            )
-                                                                        },
-                                                                        modifier = Modifier.weight(1f)
-                                                                    )
-                                                                    FilterChip(
-                                                                        selected = searchMode == SearchMode.TRANSLATION,
-                                                                        onClick = { viewModel.setSearchMode(SearchMode.TRANSLATION) },
-                                                                        label = { Text("Tradução") },
-                                                                        leadingIcon = {
-                                                                            Icon(
-                                                                                imageVector = Icons.Default.Translate,
-                                                                                contentDescription = null,
-                                                                                modifier = Modifier.size(16.dp)
-                                                                            )
-                                                                        },
-                                                                        modifier = Modifier.weight(1f)
-                                                                    )
-                                                                }
-
-                                                                Spacer(modifier = Modifier.height(12.dp))
-
-                                                                // Target Language Dropdown
-                                                                Row(
-                                                                    modifier = Modifier.fillMaxWidth(),
-                                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                                    verticalAlignment = Alignment.CenterVertically
-                                                                ) {
-                                                                    Text(
-                                                                        text = "Idioma de Destino:",
-                                                                        style = MaterialTheme.typography.labelMedium,
-                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                                    )
-
-                                                                    Box {
-                                                                        OutlinedButton(
-                                                                            onClick = { languageMenuExpanded = true },
-                                                                            shape = RoundedCornerShape(12.dp),
-                                                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                                        ) {
-                                                                            Text("${targetLanguage.flag} ${targetLanguage.displayName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                                                            Spacer(Modifier.width(4.dp))
-                                                                            Icon(Icons.Default.ArrowDropDown, contentDescription = "Selecionar idioma")
-                                                                        }
-
-                                                                        DropdownMenu(
-                                                                            expanded = languageMenuExpanded,
-                                                                            onDismissRequest = { languageMenuExpanded = false }
-                                                                        ) {
-                                                                            TranslationLanguage.entries.forEach { lang ->
-                                                                                DropdownMenuItem(
-                                                                                    text = {
-                                                                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                                            Text(lang.flag, style = MaterialTheme.typography.titleMedium)
-                                                                                            Spacer(Modifier.width(8.dp))
-                                                                                            Text(
-                                                                                                text = lang.displayName,
-                                                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                                                fontWeight = if (targetLanguage == lang) FontWeight.Bold else FontWeight.Normal
-                                                                                            )
-                                                                                        }
-                                                                                    },
-                                                                                    onClick = {
-                                                                                        viewModel.setTargetLanguage(lang)
-                                                                                        languageMenuExpanded = false
-                                                                                    },
-                                                                                    leadingIcon = if (targetLanguage == lang) {
-                                                                                        { Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                                                                    } else null
-                                                                                )
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-
-                                                                Spacer(modifier = Modifier.height(12.dp))
-
-                                                                // OutlinedTextField com recuperação instantânea de foco ao toque
-                                                                OutlinedTextField(
-                                                                    value = textToSearch,
-                                                                    onValueChange = { textToSearch = it },
-                                                                    label = {
-                                                                        Text(
-                                                                            if (searchMode == SearchMode.TRANSLATION) "Digite o texto para traduzir"
-                                                                            else "Digite a palavra para pesquisar"
-                                                                        )
-                                                                    },
-                                                                    placeholder = {
-                                                                        Text(
-                                                                            if (searchMode == SearchMode.TRANSLATION) "Ex: Hello world"
-                                                                            else "Ex: Efêmero"
-                                                                        )
-                                                                    },
-                                                                    leadingIcon = {
-                                                                        Icon(
-                                                                            imageVector = if (searchMode == SearchMode.TRANSLATION) Icons.Default.Translate else Icons.Default.Search,
-                                                                            contentDescription = null
-                                                                        )
-                                                                    },
-                                                                    singleLine = true,
-                                                                    modifier = Modifier
-                                                                        .fillMaxWidth()
-                                                                        .focusRequester(focusRequester)
-                                                                        .pointerInput(Unit) {
-                                                                            awaitEachGesture {
-                                                                                awaitFirstDown(pass = PointerEventPass.Initial)
-                                                                                checkClipboard()
-                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
-                                                                                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-                                                                                    windowManager?.updateViewLayout(frameLayout, params)
-                                                                                }
-                                                                                focusRequester.requestFocus()
-                                                                            }
-                                                                        }
-                                                                        .onFocusChanged { focusState ->
-                                                                            if (focusState.isFocused) {
-                                                                                checkClipboard()
-                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0) {
-                                                                                    params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE.inv()
-                                                                                    windowManager?.updateViewLayout(frameLayout, params)
-                                                                                }
-                                                                            } else {
-                                                                                if ((params.flags and WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) == 0) {
-                                                                                    params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                                                                                    windowManager?.updateViewLayout(frameLayout, params)
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                )
-
-                                                                Spacer(modifier = Modifier.height(16.dp))
-
-                                                     AnimatedVisibility(
-                                                         visible = detectedCopiedText != null,
-                                                         enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
-                                                         exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
-                                                     ) {
-                                                         val clipText = detectedCopiedText
-                                                         if (!clipText.isNullOrBlank()) {
-                                                             val preview = if (clipText.length > 28) clipText.take(28) + "..." else clipText
-                                                             Surface(
-                                                                 shape = RoundedCornerShape(16.dp),
-                                                                 color = MaterialTheme.colorScheme.secondaryContainer,
-                                                                 modifier = Modifier
-                                                                     .fillMaxWidth()
-                                                                     .padding(bottom = 12.dp)
-                                                             ) {
-                                                                 Row(
-                                                                     modifier = Modifier
-                                                                         .fillMaxWidth()
-                                                                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                                                                     verticalAlignment = Alignment.CenterVertically,
-                                                                     horizontalArrangement = Arrangement.SpaceBetween
-                                                                 ) {
-                                                                     Row(
-                                                                         verticalAlignment = Alignment.CenterVertically,
-                                                                         modifier = Modifier.weight(1f)
-                                                                     ) {
-                                                                         Icon(
-                                                                             imageVector = Icons.Default.ContentPaste,
-                                                                             contentDescription = null,
-                                                                             tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                             modifier = Modifier.size(20.dp)
-                                                                         )
-                                                                         Spacer(modifier = Modifier.width(8.dp))
-                                                                         Column {
-                                                                             Text(
-                                                                                 text = "Texto Copiado Detectado",
-                                                                                 style = MaterialTheme.typography.labelSmall,
-                                                                                 color = MaterialTheme.colorScheme.secondary,
-                                                                                 fontWeight = FontWeight.Bold
-                                                                             )
-                                                                             Text(
-                                                                                 text = "\"$preview\"",
-                                                                                 style = MaterialTheme.typography.bodyMedium,
-                                                                                 fontWeight = FontWeight.SemiBold,
-                                                                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                                                 maxLines = 1
-                                                                             )
-                                                                         }
-                                                                     }
-                                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                         Button(
-                                                                             onClick = {
-                                                                                 val textToSearch = clipText
-                                                                                 detectedCopiedTextFlow.value = null
-                                                                                 viewModel.showBottomSheet(textToSearch)
-                                                                             },
-                                                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                                                             modifier = Modifier.height(32.dp)
-                                                                         ) {
-                                                                             Text("Consultar", fontSize = 12.sp)
-                                                                         }
-                                                                         IconButton(
-                                                                             onClick = { detectedCopiedTextFlow.value = null },
-                                                                             modifier = Modifier.size(28.dp)
-                                                                         ) {
-                                                                             Icon(
-                                                                                 imageVector = Icons.Default.Close,
-                                                                                 contentDescription = "Fechar",
-                                                                                 modifier = Modifier.size(16.dp)
-                                                                             )
-                                                                         }
-                                                                     }
-                                                                 }
-                                                             }
-                                                         }
-                                                     }
-
-                                                                Row(
-                                                                    modifier = Modifier.fillMaxWidth(),
-                                                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                                                                ) {
-                                                                    OutlinedButton(
-                                                                        onClick = {
-                                                                            scope.launch {
-                                                                                isVisible = false
-                                                                                kotlinx.coroutines.delay(300)
-                                                                                stopSelf()
-                                                                            }
-                                                                        },
-                                                                        modifier = Modifier.weight(1f)
-                                                                    ) {
-                                                                        Text("Fechar")
-                                                                    }
-                                                                    Button(
-                                                                        onClick = { 
-                                                                            if (textToSearch.isNotBlank()) {
-                                                                                viewModel.showBottomSheet(textToSearch)
-                                                                            }
-                                                                        },
-                                                                        modifier = Modifier.weight(1f)
-                                                                    ) {
-                                                                        Text(if (searchMode == SearchMode.TRANSLATION) "Traduzir" else "Buscar")
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        is DictionaryUiState.Loading -> {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .height(200.dp),
-                                                                contentAlignment = Alignment.Center
-                                                            ) {
-                                                                ProcessingIndicator()
-                                                            }
-                                                        }
-                                                        is DictionaryUiState.Error -> {
-                                                            androidx.compose.foundation.layout.Column(
-                                                                modifier = Modifier
-                                                                    .fillMaxWidth()
-                                                                    .padding(24.dp),
-                                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
-                                                            ) {
-                                                                Text(
-                                                                    text = "Erro: ${state.message}",
-                                                                    color = MaterialTheme.colorScheme.error,
-                                                                    style = MaterialTheme.typography.bodyLarge,
-                                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                                                    modifier = Modifier.padding(bottom = 16.dp)
-                                                                )
-                                                                Button(
-                                                                    onClick = {
-                                                                        scope.launch {
-                                                                            isVisible = false
-                                                                            viewModel.hideBottomSheet()
-                                                                        }
-                                                                    }
-                                                                ) {
-                                                                    Text("Fechar")
-                                                                }
-                                                            }
-                                                        }
-                                                        is DictionaryUiState.Success -> {
-                                                            DictionaryResultContent(
-                                                                state = state,
-                                                                tts = tts,
-                                                                isFavorite = isCurrentWordFavorite,
-                                                                onToggleFavorite = { viewModel.toggleFavorite(state.result.word, state.result.definition) },
-                                                                onClose = {
-                                                                    scope.launch {
-                                                                        isVisible = false
-                                                                        kotlinx.coroutines.delay(300)
-                                                                        stopSelf()
-                                                                    }
-                                                                },
-                                                                onBackToSearch = {
-                                                                    viewModel.resetToSearch()
-                                                                },
-                                                                fontSizeSp = floatingFontSize,
-                                                                currentLanguage = targetLanguage,
-                                                                onSelectLanguage = { lang ->
-                                                                    viewModel.setTargetLanguage(lang)
-                                                                    viewModel.showBottomSheet(state.result.word)
-                                                                },
-                                                                currentSearchMode = searchMode,
-                                                                onSelectSearchMode = { mode ->
-                                                                    viewModel.setSearchMode(mode)
-                                                                    viewModel.showBottomSheet(state.result.word)
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        
-                                        // Theme toggle button
-                                        IconButton(
-                                            onClick = {
-                                                val nextTheme = when (themeMode) {
-                                                    com.example.ThemeMode.SYSTEM -> com.example.ThemeMode.LIGHT
-                                                    com.example.ThemeMode.LIGHT -> com.example.ThemeMode.DARK
-                                                    com.example.ThemeMode.DARK -> com.example.ThemeMode.SYSTEM
-                                                }
-                                                viewModel.setThemeMode(nextTheme)
-                                            },
-                                            modifier = Modifier
-                                                .align(Alignment.TopStart)
-                                                .padding(top = 12.dp, start = 50.dp)
-                                                .size(36.dp)
-                                        ) {
-                                            val (icon, description) = when (themeMode) {
-                                                com.example.ThemeMode.SYSTEM -> Pair(Icons.Default.BrightnessAuto, "Tema: Sistema")
-                                                com.example.ThemeMode.LIGHT -> Pair(Icons.Default.LightMode, "Tema: Claro")
-                                                com.example.ThemeMode.DARK -> Pair(Icons.Default.DarkMode, "Tema: Escuro")
-                                            }
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = description,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-
-                                        // Resize handle
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(16.dp)
-                                                .size(32.dp)
-                                                .pointerInput(Unit) {
-                                                    detectDragGestures(
-                                                        onDragStart = {
-                                                            if (params.width == WindowManager.LayoutParams.MATCH_PARENT) {
-                                                                params.width = frameLayout.width
-                                                            }
-                                                            if (params.height == WindowManager.LayoutParams.WRAP_CONTENT) {
-                                                                params.height = frameLayout.height
-                                                            }
-                                                        },
-                                                        onDrag = { change, dragAmount ->
-                                                            change.consume()
-                                                            val displayMetrics = resources.displayMetrics
-                                                            val screenWidth = displayMetrics.widthPixels
-                                                            val screenHeight = displayMetrics.heightPixels
-
-                                                            params.height -= dragAmount.y.toInt()
-                                                            params.width += (dragAmount.x.toInt() * 2)
-                                                            
-                                                            val minSizePx = (200 * currentDensity.density).toInt()
-                                                            if (params.height < minSizePx) params.height = minSizePx
-                                                            if (params.height > screenHeight) params.height = screenHeight
-
-                                                            if (params.width < minSizePx) params.width = minSizePx
-                                                            if (params.width > screenWidth) params.width = screenWidth
-
-                                                            val currentW = if (frameLayout.width > 0) frameLayout.width else params.width
-                                                            val currentH = if (frameLayout.height > 0) frameLayout.height else params.height
-
-                                                            val maxDeltaX = ((screenWidth - currentW) / 2).coerceAtLeast(0)
-                                                            val maxY = (screenHeight - currentH).coerceAtLeast(0)
-
-                                                            params.x = params.x.coerceIn(-maxDeltaX, maxDeltaX)
-                                                            params.y = params.y.coerceIn(0, maxY)
-
-                                                            windowManager?.updateViewLayout(frameLayout, params)
-                                                        }
-                                                    )
-                                                },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.OpenWith,
-                                                contentDescription = "Redimensionar",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                        
-                                        // Minimize handle
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopStart)
-                                                .padding(16.dp)
-                                                .size(32.dp)
-                                                .clickable { isMinimized = true },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.CloseFullscreen,
-                                                contentDescription = "Minimizar",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                )
             }
         }
-        
+
         frameLayout.addView(view)
-        
         composeView = frameLayout
         windowManager?.addView(frameLayout, params)
     }
@@ -1184,7 +214,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
-        
+
         clipPollingJob?.cancel()
         serviceScope.cancel()
         clipListener?.let { clipboardManager?.removePrimaryClipChangedListener(it) }
@@ -1192,7 +222,7 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         store.clear()
         tts?.stop()
         tts?.shutdown()
-        
+
         composeView?.let {
             windowManager?.removeView(it)
         }
