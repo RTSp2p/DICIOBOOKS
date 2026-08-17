@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,11 +23,10 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,9 +38,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+/**
+ * Componente visual do ícone flutuante (bolha).
+ * Trata o badge de texto copiado e os gestos de toque simples (expansão) vs arrasto (movimento + ancoragem).
+ */
 @Composable
 fun FloatingBubbleView(
     detectedCopiedText: String?,
@@ -58,6 +63,7 @@ fun FloatingBubbleView(
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.wrapContentSize()
     ) {
+        // Badge de texto recentemente copiado
         AnimatedVisibility(
             visible = !detectedCopiedText.isNullOrBlank(),
             enter = fadeIn() + slideInVertically(initialOffsetY = { 20 }) + scaleIn(initialScale = 0.85f),
@@ -75,6 +81,7 @@ fun FloatingBubbleView(
                     modifier = Modifier
                         .padding(bottom = 8.dp)
                         .widthIn(max = 280.dp)
+                        .testTag("floating_copied_badge")
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -110,7 +117,7 @@ fun FloatingBubbleView(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.ArrowForward,
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                     contentDescription = "Ir",
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(12.dp)
@@ -134,31 +141,40 @@ fun FloatingBubbleView(
             }
         }
 
-        FloatingActionButton(
-            onClick = {},
+        // Ícone Flutuante com detecção precisa de Toque Simples vs Arrasto Contínuo
+        Surface(
             shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shadowElevation = 8.dp,
+            tonalElevation = 6.dp,
             modifier = Modifier
-                .graphicsLayer { alpha = floatingIconOpacity }
                 .padding(4.dp)
+                .size(56.dp)
+                .graphicsLayer { alpha = floatingIconOpacity }
+                .testTag("floating_bubble_icon")
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        // Registra interação no início do toque para renovar o temporizador de 60s
+                        onInteraction()
                         onCheckClipboard()
+
                         var totalDx = 0f
                         var totalDy = 0f
                         var isDrag = false
                         val touchSlop = viewConfiguration.touchSlop
 
-                        onInteraction()
-
                         do {
                             val event = awaitPointerEvent()
-                            val pointerChange = event.changes.find { it.id == down.id } ?: break
+                            val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+
                             if (pointerChange.pressed) {
                                 val posChange = pointerChange.positionChange()
                                 totalDx += posChange.x
                                 totalDy += posChange.y
 
+                                // Identifica se ultrapassou a folga de toque (touch slop)
                                 if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
                                     isDrag = true
                                 }
@@ -166,12 +182,16 @@ fun FloatingBubbleView(
                                 if (isDrag) {
                                     pointerChange.consume()
                                     onDragDelta(posChange.x, posChange.y)
+                                    onInteraction()
                                 }
                             } else {
+                                // Dedo levantado (UP)
                                 if (isDrag) {
+                                    // Soltou após arrasto: acolhe imediatamente na borda mais próxima
                                     onDragEnd()
                                     onInteraction()
                                 } else {
+                                    // Toque simples rápido sem arrasto: expande a janela imediatamente
                                     onExpandWindow()
                                     onCheckClipboard()
                                     onInteraction()
@@ -182,7 +202,17 @@ fun FloatingBubbleView(
                     }
                 }
         ) {
-            Icon(imageVector = Icons.Default.Search, contentDescription = "Maximizar")
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Maximizar dicionário",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
     }
 }
