@@ -86,6 +86,7 @@ fun FloatingExpandedView(
     onTargetLanguageChange: (TranslationLanguage) -> Unit,
     onSearchWord: (String) -> Unit,
     onResetToSearch: () -> Unit,
+    onRetrySearch: (() -> Unit)? = null,
     onToggleFavorite: (String, String) -> Unit,
     onDismissCopiedText: () -> Unit,
     onEnsureFocusable: () -> Unit,
@@ -231,19 +232,49 @@ fun FloatingExpandedView(
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(24.dp),
+                                            .padding(16.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.Center
                                     ) {
-                                        Text(
-                                            text = "Erro: ${state.message}",
-                                            color = MaterialTheme.colorScheme.error,
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(bottom = 16.dp)
-                                        )
-                                        Button(onClick = onResetToSearch) {
-                                            Text("Fechar")
+                                        Surface(
+                                            shape = RoundedCornerShape(16.dp),
+                                            color = MaterialTheme.colorScheme.errorContainer,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(16.dp)) {
+                                                Text(
+                                                    text = "Falha na Consulta",
+                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                )
+                                                Spacer(Modifier.height(8.dp))
+                                                Text(
+                                                    text = state.message,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.height(16.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            if (onRetrySearch != null) {
+                                                Button(
+                                                    onClick = onRetrySearch,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text("Tentar Novamente")
+                                                }
+                                            }
+                                            androidx.compose.material3.OutlinedButton(
+                                                onClick = onResetToSearch,
+                                                modifier = if (onRetrySearch != null) Modifier.weight(1f) else Modifier.fillMaxWidth()
+                                            ) {
+                                                Text("Voltar à Pesquisa")
+                                            }
                                         }
                                     }
                                 }

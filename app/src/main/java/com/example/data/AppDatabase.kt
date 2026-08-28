@@ -5,10 +5,11 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [SearchHistory::class, Favorite::class], version = 2, exportSchema = false)
+@Database(entities = [SearchHistory::class, Favorite::class, CachedDefinition::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun favoriteDao(): FavoriteDao
+    abstract fun cachedDefinitionDao(): CachedDefinitionDao
 
     companion object {
         @Volatile

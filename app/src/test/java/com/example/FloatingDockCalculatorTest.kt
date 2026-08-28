@@ -14,26 +14,31 @@ class FloatingDockCalculatorTest {
     private val screenHeight = 2400
     private val bubbleWidth = 160
     private val bubbleHeight = 160
-    private val topInset = 80
-    private val bottomInset = 120
+    private val topInset = 88       // Status bar + cutout
+    private val bottomInset = 120    // Navigation bar / Gesture bar
+    private val leftInset = 0
+    private val rightInset = 0
 
     @Test
-    fun calculateInitialPosition_centersHorizontallyAndRestsFullyVisibleAtBottom() {
+    fun calculateInitialPosition_centersHorizontallyAndRestsFullyVisibleAboveNavBar() {
         val (initialX, initialY) = FloatingDockCalculator.calculateInitialPosition(
             bubbleWidth = bubbleWidth,
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
             bottomInset = bottomInset,
-            bottomPaddingPx = 40
+            bottomPaddingPx = 40,
+            topInset = topInset,
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
         // Horizontalmente centralizado: (1080 - 160) / 2 = 460
         assertEquals(460, initialX)
         // 100% visível acima da barra de navegação: (2400 - 120) - 160 - 40 = 2080
         assertEquals(2080, initialY)
-        // O topo do ícone fica em 2080 e a base em 2080 + 160 = 2240, que é <= usableBottom (2280)
         assertTrue(initialY + bubbleHeight <= screenHeight - bottomInset)
+        assertTrue(initialY >= topInset)
     }
 
     @Test
@@ -46,9 +51,11 @@ class FloatingDockCalculatorTest {
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
+            thresholdPx = 50,
             topInset = topInset,
             bottomInset = bottomInset,
-            thresholdPx = 50
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
         assertFalse(result.isDocked)
@@ -67,10 +74,12 @@ class FloatingDockCalculatorTest {
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
+            thresholdPx = 50,
+            visibleFraction = 0.5f,
             topInset = topInset,
             bottomInset = bottomInset,
-            thresholdPx = 50,
-            visibleFraction = 0.5f
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
         assertTrue(result.isDocked)
@@ -89,10 +98,12 @@ class FloatingDockCalculatorTest {
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
+            thresholdPx = 50,
+            visibleFraction = 0.5f,
             topInset = topInset,
             bottomInset = bottomInset,
-            thresholdPx = 50,
-            visibleFraction = 0.5f
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
         assertTrue(result.isDocked)
@@ -102,8 +113,8 @@ class FloatingDockCalculatorTest {
     }
 
     @Test
-    fun resolveReleasePosition_whenPushedAgainstTopEdge_docksWithExactHalfVisibleAtTop() {
-        // Pressionado contra o topo (currentY = 90, topInset = 80 -> dist = 10 <= 50)
+    fun resolveReleasePosition_whenNearTopEdge_doesNotDockAndStaysFreeInPlace() {
+        // Solto próximo ao topo (mas longe das bordas laterais x = 400)
         val result = FloatingDockCalculator.resolveReleasePosition(
             currentX = 400,
             currentY = 90,
@@ -111,65 +122,128 @@ class FloatingDockCalculatorTest {
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
+            thresholdPx = 50,
+            visibleFraction = 0.5f,
             topInset = topInset,
             bottomInset = bottomInset,
-            thresholdPx = 50,
-            visibleFraction = 0.5f
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
-        assertTrue(result.isDocked)
-        assertEquals(DockEdge.TOP, result.edge)
+        // Não deve acolher no topo!
+        assertFalse(result.isDocked)
+        assertNull(result.edge)
         assertEquals(400, result.x)
-        // topInset - hiddenHeight = 80 - 80 = 0 (exatamente 50% visível a partir do status bar)
-        assertEquals(0, result.y)
+        assertEquals(90, result.y)
     }
 
     @Test
-    fun resolveReleasePosition_whenPushedAgainstBottomEdge_docksWithExactHalfVisibleAtBottom() {
-        // usableBottom = 2400 - 120 = 2280. Icon at y = 2110 (2280 - 160 = 2120, dist = 10 <= 50)
+    fun resolveReleasePosition_whenNearBottomEdge_doesNotDockAndStaysFreeInPlace() {
+        // Solto próximo à base (mas longe das bordas laterais x = 400)
         val result = FloatingDockCalculator.resolveReleasePosition(
             currentX = 400,
-            currentY = 2110,
+            currentY = 2100,
             bubbleWidth = bubbleWidth,
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
-            topInset = topInset,
-            bottomInset = bottomInset,
             thresholdPx = 50,
-            visibleFraction = 0.5f
+            visibleFraction = 0.5f,
+            topInset = topInset,
+            bottomInset = bottomInset,
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
-        assertTrue(result.isDocked)
-        assertEquals(DockEdge.BOTTOM, result.edge)
+        // Não deve acolher na base!
+        assertFalse(result.isDocked)
+        assertNull(result.edge)
         assertEquals(400, result.x)
-        // usableBottom - visibleHeight = 2280 - 80 = 2200
-        // Icone vai de 2200 a 2360. A tela útil termina em 2280 -> Exatamente 80px (50%) visível!
-        assertEquals(2200, result.y)
+        assertEquals(2100, result.y)
     }
 
     @Test
-    fun calculateNearestEdge_docksToClosestEdgeAfterTimeout() {
-        // Teste de timeout (60s): ícone próximo à esquerda
-        val result = FloatingDockCalculator.calculateNearestEdge(
-            currentX = 50,
-            currentY = 1000,
+    fun calculateNearestEdge_docksToClosestHorizontalEdge() {
+        // Mais próximo da esquerda (x = 300)
+        val leftResult = FloatingDockCalculator.calculateNearestEdge(
+            currentX = 300,
+            currentY = 800,
             bubbleWidth = bubbleWidth,
             bubbleHeight = bubbleHeight,
             screenWidth = screenWidth,
             screenHeight = screenHeight,
             topInset = topInset,
-            bottomInset = bottomInset,
-            visibleFraction = 0.5f
+            bottomInset = bottomInset
         )
+        assertEquals(DockEdge.LEFT, leftResult.edge)
+        assertEquals(-80, leftResult.x)
+        assertEquals(800, leftResult.y)
 
-        assertEquals(DockEdge.LEFT, result.edge)
-        assertEquals(-80, result.x)
-        assertEquals(1000, result.y)
+        // Mais próximo da direita (x = 700)
+        val rightResult = FloatingDockCalculator.calculateNearestEdge(
+            currentX = 700,
+            currentY = 800,
+            bubbleWidth = bubbleWidth,
+            bubbleHeight = bubbleHeight,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            topInset = topInset,
+            bottomInset = bottomInset
+        )
+        assertEquals(DockEdge.RIGHT, rightResult.edge)
+        assertEquals(1000, rightResult.x)
+        assertEquals(800, rightResult.y)
     }
 
     @Test
-    fun clampDragPosition_constrainsWithinVisibleAndInsetBounds() {
+    fun isPositionDocked_correctlyDetectsLateralDockedState() {
+        // Na esquerda acolhida com 50% oculto (x = -80)
+        assertTrue(FloatingDockCalculator.isPositionDocked(-80, 500, bubbleWidth, bubbleHeight, screenWidth, screenHeight))
+        // Na direita acolhida com 50% oculto (x = 1000)
+        assertTrue(FloatingDockCalculator.isPositionDocked(1000, 500, bubbleWidth, bubbleHeight, screenWidth, screenHeight))
+        // Livre no centro
+        assertFalse(FloatingDockCalculator.isPositionDocked(400, 500, bubbleWidth, bubbleHeight, screenWidth, screenHeight))
+    }
+
+    @Test
+    fun undockPosition_bringsIconFullyVisibleOntoSafeScreenArea() {
+        // Desacolhe da esquerda -> safeLeft + marginPx = 20
+        val (undockLeftX, undockLeftY) = FloatingDockCalculator.undockPosition(
+            currentX = -80,
+            currentY = 800,
+            bubbleWidth = bubbleWidth,
+            bubbleHeight = bubbleHeight,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            marginPx = 20,
+            topInset = topInset,
+            bottomInset = bottomInset,
+            leftInset = leftInset,
+            rightInset = rightInset
+        )
+        assertEquals(20, undockLeftX)
+        assertEquals(800, undockLeftY)
+
+        // Desacolhe da direita -> screenWidth - bubbleWidth - marginPx = 1080 - 160 - 20 = 900
+        val (undockRightX, undockRightY) = FloatingDockCalculator.undockPosition(
+            currentX = 1000,
+            currentY = 800,
+            bubbleWidth = bubbleWidth,
+            bubbleHeight = bubbleHeight,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            marginPx = 20,
+            topInset = topInset,
+            bottomInset = bottomInset,
+            leftInset = leftInset,
+            rightInset = rightInset
+        )
+        assertEquals(900, undockRightX)
+        assertEquals(800, undockRightY)
+    }
+
+    @Test
+    fun clampDragPosition_allowsLateralHalfOffscreenAndKeepsVerticalInSafeRange() {
         val clamped = FloatingDockCalculator.clampDragPosition(
             newX = -500,
             newY = 3000,
@@ -178,12 +252,14 @@ class FloatingDockCalculatorTest {
             screenWidth = screenWidth,
             screenHeight = screenHeight,
             topInset = topInset,
-            bottomInset = bottomInset
+            bottomInset = bottomInset,
+            leftInset = leftInset,
+            rightInset = rightInset
         )
 
         // Min X is -80 (-bubbleWidth/2)
         assertEquals(-80, clamped.first)
-        // Max Y is usableBottom - bubbleHeight/2 = (2400 - 120) - 80 = 2200
-        assertEquals(2200, clamped.second)
+        // Max Y is safeBottom - bubbleHeight = (2400 - 120) - 160 = 2120
+        assertEquals(2120, clamped.second)
     }
 }

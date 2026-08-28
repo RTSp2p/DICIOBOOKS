@@ -141,7 +141,31 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
         _isClipboardListenerEnabled.value = enabled
     }
 
-    private val repository = DictionaryRepository()
+    private val _geminiCustomApiKey = MutableStateFlow(
+        prefs.getString("gemini_custom_api_key", "") ?: ""
+    )
+    val geminiCustomApiKey: StateFlow<String> = _geminiCustomApiKey.asStateFlow()
+
+    fun setGeminiCustomApiKey(key: String) {
+        prefs.edit().putString("gemini_custom_api_key", key.trim()).apply()
+        _geminiCustomApiKey.value = key.trim()
+    }
+
+    private val _groqCustomApiKey = MutableStateFlow(
+        prefs.getString("groq_custom_api_key", "") ?: ""
+    )
+    val groqCustomApiKey: StateFlow<String> = _groqCustomApiKey.asStateFlow()
+
+    fun setGroqCustomApiKey(key: String) {
+        prefs.edit().putString("groq_custom_api_key", key.trim()).apply()
+        _groqCustomApiKey.value = key.trim()
+    }
+
+    private val repository = DictionaryRepository(application)
+
+    fun isGeminiConfigured(): Boolean = repository.getGeminiApiKey().isNotBlank()
+    fun isGroqConfigured(): Boolean = repository.getGroqApiKey().isNotBlank()
+
     private val db = AppDatabase.getDatabase(application)
     private val searchHistoryRepository = SearchHistoryRepository(db.searchHistoryDao())
     private val favoriteRepository = FavoriteRepository(db.favoriteDao())
@@ -160,8 +184,24 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
             initialValue = emptyList()
         )
 
+    val cacheCount: StateFlow<Int> = db.cachedDefinitionDao().getCacheCount()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = 0
+        )
+
+    fun clearCache() {
+        viewModelScope.launch {
+            repository.clearCache()
+        }
+    }
+
     private val _uiState = MutableStateFlow<DictionaryUiState>(DictionaryUiState.Idle)
     val uiState: StateFlow<DictionaryUiState> = _uiState.asStateFlow()
+
+    private val _lastSearchedWord = MutableStateFlow("")
+    val lastSearchedWord: StateFlow<String> = _lastSearchedWord.asStateFlow()
 
     private val _isBottomSheetVisible = MutableStateFlow(false)
     val isBottomSheetVisible: StateFlow<Boolean> = _isBottomSheetVisible.asStateFlow()
@@ -172,6 +212,13 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
     fun showBottomSheet(word: String) {
         _isBottomSheetVisible.value = true
         fetchDefinition(word)
+    }
+
+    fun retryLastSearch() {
+        val word = _lastSearchedWord.value
+        if (word.isNotBlank()) {
+            fetchDefinition(word)
+        }
     }
 
     fun hideBottomSheet() {
@@ -222,12 +269,15 @@ class DictionaryViewModel(application: Application) : AndroidViewModel(applicati
     private var searchJob: Job? = null
 
     private fun fetchDefinition(word: String) {
+        val trimmed = word.trim()
+        if (trimmed.isBlank()) return
+        _lastSearchedWord.value = trimmed
         searchJob?.cancel()
         _uiState.value = DictionaryUiState.Loading
         searchJob = viewModelScope.launch {
             val currentLang = _targetLanguage.value
             val currentMode = _searchMode.value
-            val result = repository.getDefinitionAndSynonyms(word, currentLang, currentMode)
+            val result = repository.getDefinitionAndSynonyms(trimmed, currentLang, currentMode)
             result.onSuccess { data ->
                 _uiState.value = DictionaryUiState.Success(data)
                 _isCurrentWordFavorite.value = favoriteRepository.isFavorite(data.word)

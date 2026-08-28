@@ -41,10 +41,16 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Componente visual do ícone flutuante (bolha).
- * Trata o badge de texto copiado e os gestos de toque simples (expansão) vs arrasto (movimento + ancoragem).
+ * Trata o badge de texto copiado e os gestos de:
+ * 1. Toque simples rápido -> expande a janela do dicionário.
+ * 2. Pressão contínua (> 2 segundos) em bordas acolhidas -> desacolhe e fica 100% visível para arrasto.
+ * 3. Arrasto manual contínuo -> reposicionamento livre ou acolhimento sob pressão nas bordas.
  */
 @Composable
 fun FloatingBubbleView(
@@ -54,6 +60,7 @@ fun FloatingBubbleView(
     onDismissCopiedBadge: () -> Unit,
     onExpandWindow: () -> Unit,
     onCheckClipboard: () -> Unit,
+    onLongPressUndock: () -> Unit,
     onDragDelta: (dx: Float, dy: Float) -> Unit,
     onDragEnd: () -> Unit,
     onInteraction: () -> Unit
@@ -141,7 +148,7 @@ fun FloatingBubbleView(
             }
         }
 
-        // Ícone Flutuante com detecção precisa de Toque Simples vs Arrasto Contínuo
+        // Ícone Flutuante com detecção precisa de Toque Simples vs Pressão Longa (>2s) vs Arrasto
         Surface(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primary,
@@ -154,51 +161,73 @@ fun FloatingBubbleView(
                 .graphicsLayer { alpha = floatingIconOpacity }
                 .testTag("floating_bubble_icon")
                 .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        // Registra interação no início do toque para renovar o temporizador de 60s
-                        onInteraction()
-                        onCheckClipboard()
+                    coroutineScope {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            // Registra interação no início do toque para renovar o temporizador de 60s
+                            onInteraction()
+                            onCheckClipboard()
 
-                        var totalDx = 0f
-                        var totalDy = 0f
-                        var isDrag = false
-                        val touchSlop = viewConfiguration.touchSlop
+                            var totalDx = 0f
+                            var totalDy = 0f
+                            var isDrag = false
+                            var hasUndocked = false
+                            val touchSlop = viewConfiguration.touchSlop
 
-                        do {
-                            val event = awaitPointerEvent()
-                            val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
-
-                            if (pointerChange.pressed) {
-                                val posChange = pointerChange.positionChange()
-                                totalDx += posChange.x
-                                totalDy += posChange.y
-
-                                // Identifica se ultrapassou a folga de toque (touch slop)
-                                if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
-                                    isDrag = true
-                                }
-
-                                if (isDrag) {
-                                    pointerChange.consume()
-                                    onDragDelta(posChange.x, posChange.y)
+                            // Temporizador de 2 segundos para desacolher o ícone se pressionado continuamente
+                            val longPressJob = launch {
+                                delay(2000L)
+                                if (!isDrag) {
+                                    hasUndocked = true
+                                    onLongPressUndock()
                                     onInteraction()
                                 }
-                            } else {
-                                // Dedo levantado (UP)
-                                if (isDrag) {
-                                    // Soltou após arrasto: acolhe imediatamente na borda mais próxima
-                                    onDragEnd()
-                                    onInteraction()
-                                } else {
-                                    // Toque simples rápido sem arrasto: expande a janela imediatamente
-                                    onExpandWindow()
-                                    onCheckClipboard()
-                                    onInteraction()
-                                }
-                                break
                             }
-                        } while (event.changes.any { it.pressed })
+
+                            try {
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                    if (pointerChange.pressed) {
+                                        val posChange = pointerChange.positionChange()
+                                        totalDx += posChange.x
+                                        totalDy += posChange.y
+
+                                        // Identifica se ultrapassou a folga de toque (touch slop)
+                                        if (!isDrag && kotlin.math.hypot(totalDx, totalDy) > touchSlop) {
+                                            isDrag = true
+                                            longPressJob.cancel()
+                                        }
+
+                                        if (isDrag) {
+                                            pointerChange.consume()
+                                            onDragDelta(posChange.x, posChange.y)
+                                            onInteraction()
+                                        }
+                                    } else {
+                                        // Dedo levantado (UP)
+                                        longPressJob.cancel()
+                                        if (isDrag) {
+                                            // Soltou após arrasto: acolhe na borda se pressionado contra ela, ou fica livre
+                                            onDragEnd()
+                                            onInteraction()
+                                        } else if (!hasUndocked) {
+                                            // Toque simples rápido sem arrasto: expande a janela imediatamente
+                                            onExpandWindow()
+                                            onCheckClipboard()
+                                            onInteraction()
+                                        } else {
+                                            // Ficou pressionado por > 2s e soltou sem arrastar: mantém livre no local
+                                            onInteraction()
+                                        }
+                                        break
+                                    }
+                                } while (event.changes.any { it.pressed })
+                            } finally {
+                                longPressJob.cancel()
+                            }
+                        }
                     }
                 }
         ) {

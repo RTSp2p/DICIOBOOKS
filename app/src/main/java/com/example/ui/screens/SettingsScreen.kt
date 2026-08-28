@@ -25,10 +25,12 @@ import androidx.compose.material.icons.filled.Accessibility
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -46,6 +48,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -78,6 +81,7 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
     val targetLanguage by viewModel.targetLanguage.collectAsState()
     val searchMode by viewModel.searchMode.collectAsState()
     val isClipboardListenerEnabled by viewModel.isClipboardListenerEnabled.collectAsState()
+    val cacheCount by viewModel.cacheCount.collectAsState()
     val context = LocalContext.current
 
     Scaffold(
@@ -511,6 +515,154 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
             HorizontalDivider()
             Spacer(Modifier.height(24.dp))
 
+            Text("Provedores de IA & Chaves de API", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "O dicionário consulta o Google Gemini AI como provedor principal (com fallback inteligente de modelos) e utiliza a API do Groq como backup instantâneo de alta velocidade.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(16.dp))
+
+            val geminiCustomKey by viewModel.geminiCustomApiKey.collectAsState()
+            val groqCustomKey by viewModel.groqCustomApiKey.collectAsState()
+            var geminiInput by remember(geminiCustomKey) { mutableStateOf(geminiCustomKey) }
+            var groqInput by remember(groqCustomKey) { mutableStateOf(groqCustomKey) }
+
+            OutlinedCard(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Google Gemini AI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        val isGeminiReady = viewModel.isGeminiConfigured()
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isGeminiReady) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Text(
+                                text = if (isGeminiReady) "Ativo" else "Sem Chave",
+                                color = if (isGeminiReady) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Modelos suportados: gemini-2.5-flash, gemini-flash-latest, gemini-2.0-flash, gemini-1.5-flash.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = geminiInput,
+                        onValueChange = { geminiInput = it },
+                        label = { Text("Chave Gemini Personalizada (Opcional)") },
+                        placeholder = { Text("AIzaSy...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        trailingIcon = {
+                            if (geminiInput.isNotBlank()) {
+                                IconButton(onClick = {
+                                    geminiInput = ""
+                                    viewModel.setGeminiCustomApiKey("")
+                                    Toast.makeText(context, "Chave Gemini personalizada removida.", Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(Icons.Default.HelpOutline, contentDescription = "Limpar", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            viewModel.setGeminiCustomApiKey(geminiInput)
+                            Toast.makeText(context, "Chave Gemini salva!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Salvar Chave Gemini")
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Groq AI (Backup / Redundância)", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+                        val isGroqReady = viewModel.isGroqConfigured()
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isGroqReady) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.errorContainer
+                        ) {
+                            Text(
+                                text = if (isGroqReady) "Ativo" else "Sem Chave",
+                                color = if (isGroqReady) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Modelos configurados: groq/compound, groq/compound-mini, openai/gpt-oss-20b, qwen/qwen3.6-27b, etc.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = groqInput,
+                        onValueChange = { groqInput = it },
+                        label = { Text("Chave Groq Personalizada (Opcional)") },
+                        placeholder = { Text("gsk_...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        trailingIcon = {
+                            if (groqInput.isNotBlank()) {
+                                IconButton(onClick = {
+                                    groqInput = ""
+                                    viewModel.setGroqCustomApiKey("")
+                                    Toast.makeText(context, "Chave Groq personalizada removida.", Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(Icons.Default.HelpOutline, contentDescription = "Limpar", modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            viewModel.setGroqCustomApiKey(groqInput)
+                            Toast.makeText(context, "Chave Groq salva!", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text("Salvar Chave Groq")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
             Text("Captura de Seleção de Texto (Acessibilidade)", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.height(8.dp))
             Text(
@@ -553,6 +705,65 @@ fun SettingsScreen(viewModel: DictionaryViewModel, onOpenDrawer: () -> Unit) {
                 Icon(Icons.Default.Layers, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Permissão de Sobreposição na Tela")
+            }
+
+            Spacer(Modifier.height(24.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(24.dp))
+
+            Text("Armazenamento & Cache Offline", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Todas as consultas realizadas são salvas automaticamente no banco de dados local. Caso você fique sem internet, o aplicativo responderá instantaneamente usando o cache.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Storage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Definições Salvas em Cache",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "$cacheCount ${if (cacheCount == 1) "termo disponível offline" else "termos disponíveis offline"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (cacheCount > 0) {
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.clearCache()
+                                Toast.makeText(context, "Cache offline limpo com sucesso!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Limpar Cache Offline")
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(24.dp))

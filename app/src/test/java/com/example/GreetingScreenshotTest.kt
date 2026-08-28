@@ -31,6 +31,7 @@ class GreetingScreenshotTest {
           onDismissCopiedBadge = {},
           onExpandWindow = {},
           onCheckClipboard = {},
+          onLongPressUndock = {},
           onDragDelta = { _, _ -> },
           onDragEnd = {},
           onInteraction = {}

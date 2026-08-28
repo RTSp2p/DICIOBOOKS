@@ -160,22 +160,38 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
                 WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                    WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
 
         val frameLayout = FrameLayout(this).apply {
+            fitsSystemWindows = false
+            clipToPadding = false
+            clipChildren = false
             setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_OUTSIDE) {
                     onOutsideTouchAction?.invoke()
                 }
                 false
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                addOnLayoutChangeListener { v, left, top, right, bottom, _, _, _, _ ->
+                    val w = right - left
+                    val h = bottom - top
+                    if (w > 0 && h > 0) {
+                        v.systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, w, h))
+                    }
+                }
             }
         }
 
@@ -188,6 +204,9 @@ class FloatingDictionaryService : Service(), LifecycleOwner, SavedStateRegistryO
         }
 
         val view = ComposeView(this).apply {
+            fitsSystemWindows = false
+            clipToPadding = false
+            clipChildren = false
             setContent {
                 FloatingWindowContent(
                     viewModel = viewModel,

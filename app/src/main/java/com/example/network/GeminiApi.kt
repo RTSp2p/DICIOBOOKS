@@ -1,5 +1,6 @@
 package com.example.network
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -8,18 +9,21 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
 data class GeminiGenerateContentRequest(
     val contents: List<GeminiContent>,
+    @field:Json(name = "system_instruction")
     val systemInstruction: GeminiContent? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiContent(
-    val parts: List<GeminiPart>
+    val parts: List<GeminiPart>,
+    val role: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -29,17 +33,18 @@ data class GeminiPart(
 
 @JsonClass(generateAdapter = true)
 data class GeminiGenerateContentResponse(
-    val candidates: List<GeminiCandidate>?
+    val candidates: List<GeminiCandidate>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GeminiCandidate(
-    val content: GeminiContent?
+    val content: GeminiContent? = null
 )
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
+        @Path("model") model: String,
         @Query("key") apiKey: String,
         @Body request: GeminiGenerateContentRequest
     ): GeminiGenerateContentResponse
@@ -70,7 +75,7 @@ object GeminiRetrofitClient {
 
 @JsonClass(generateAdapter = true)
 data class GroqChatRequest(
-    val model: String = "llama-3.3-70b-versatile",
+    val model: String = "groq/compound",
     val messages: List<GroqMessage>,
     val temperature: Double? = 0.2
 )
@@ -83,12 +88,12 @@ data class GroqMessage(
 
 @JsonClass(generateAdapter = true)
 data class GroqChatResponse(
-    val choices: List<GroqChoice>?
+    val choices: List<GroqChoice>? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class GroqChoice(
-    val message: GroqMessage?
+    val message: GroqMessage? = null
 )
 
 interface GroqApiService {

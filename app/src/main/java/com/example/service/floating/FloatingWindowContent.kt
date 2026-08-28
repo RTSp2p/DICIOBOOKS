@@ -127,7 +127,7 @@ fun FloatingWindowContent(
         // Tamanho estável e determinístico da bolha (56dp + 8dp de padding = 64dp)
         val bubbleSizePx = (64 * density).toInt()
 
-        // Detecção precisa de insets de Status Bar (topo) e Navigation Bar (base)
+        // Detecção precisa de insets de Status Bar (topo), Navigation Bar (base) e Recortes laterais
         val topInset: Int = remember(screenWidth, screenHeight) {
             var insetValue = 0
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && windowManager != null) {
@@ -152,7 +152,7 @@ fun FloatingWindowContent(
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && windowManager != null) {
                 try {
                     val insets = windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
-                        android.view.WindowInsets.Type.navigationBars()
+                        android.view.WindowInsets.Type.navigationBars() or android.view.WindowInsets.Type.displayCutout()
                     )
                     insetValue = insets.bottom
                 } catch (_: Exception) { }
@@ -166,21 +166,61 @@ fun FloatingWindowContent(
             insetValue
         }
 
-        // Posição inicial: centralizado horizontalmente na borda inferior e 100% visível
-        val initialPos = remember(screenWidth, screenHeight, bubbleSizePx, bottomInset) {
+        val leftInset: Int = remember(screenWidth, screenHeight) {
+            var insetValue = 0
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && windowManager != null) {
+                try {
+                    val insets = windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+                    )
+                    insetValue = insets.left
+                } catch (_: Exception) { }
+            }
+            insetValue
+        }
+
+        val rightInset: Int = remember(screenWidth, screenHeight) {
+            var insetValue = 0
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && windowManager != null) {
+                try {
+                    val insets = windowManager.currentWindowMetrics.windowInsets.getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout()
+                    )
+                    insetValue = insets.right
+                } catch (_: Exception) { }
+            }
+            insetValue
+        }
+
+        // Posição inicial: centralizado horizontalmente na área segura e 100% visível acima da barra de navegação
+        val initialPos = remember(screenWidth, screenHeight, bubbleSizePx, bottomInset, topInset, leftInset, rightInset) {
             FloatingDockCalculator.calculateInitialPosition(
                 bubbleWidth = bubbleSizePx,
                 bubbleHeight = bubbleSizePx,
                 screenWidth = screenWidth,
                 screenHeight = screenHeight,
                 bottomInset = bottomInset,
-                bottomPaddingPx = (16 * density).toInt()
+                bottomPaddingPx = (16 * density).toInt(),
+                topInset = topInset,
+                leftInset = leftInset,
+                rightInset = rightInset
             )
         }
 
         var lastFabX by remember { mutableIntStateOf(initialPos.first) }
         var lastFabY by remember { mutableIntStateOf(initialPos.second) }
         var interactionCount by remember { mutableIntStateOf(0) }
+
+        fun applyLayoutUpdate() {
+            windowManager?.updateViewLayout(frameLayout, params)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && isMinimized) {
+                val w = frameLayout.width.takeIf { it > 0 } ?: bubbleSizePx
+                val h = frameLayout.height.takeIf { it > 0 } ?: bubbleSizePx
+                try {
+                    frameLayout.systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, w, h))
+                } catch (_: Exception) { }
+            }
+        }
 
         // Função de acolhimento (docking) para a borda mais próxima (após 60s de inatividade)
         fun dockToNearestEdge() {
@@ -191,19 +231,21 @@ fun FloatingWindowContent(
                 bubbleHeight = bubbleSizePx,
                 screenWidth = screenWidth,
                 screenHeight = screenHeight,
+                visibleFraction = 0.5f,
                 topInset = topInset,
                 bottomInset = bottomInset,
-                visibleFraction = 0.5f
+                leftInset = leftInset,
+                rightInset = rightInset
             )
 
             params.x = dockPosition.x
             params.y = dockPosition.y
             lastFabX = params.x
             lastFabY = params.y
-            windowManager?.updateViewLayout(frameLayout, params)
+            applyLayoutUpdate()
         }
 
-        // Função ao soltar o arrasto: acolhe imediatamente se pressionado contra a borda, ou permanece no local
+        // Função ao soltar o arrasto: acolhe imediatamente se pressionado contra a borda, ou permanece na área segura
         fun handleDragRelease() {
             val resolvedPosition = FloatingDockCalculator.resolveReleasePosition(
                 currentX = params.x,
@@ -212,17 +254,55 @@ fun FloatingWindowContent(
                 bubbleHeight = bubbleSizePx,
                 screenWidth = screenWidth,
                 screenHeight = screenHeight,
+                thresholdPx = (bubbleSizePx / 3).coerceAtLeast((24 * density).toInt()),
+                visibleFraction = 0.5f,
                 topInset = topInset,
                 bottomInset = bottomInset,
-                thresholdPx = (bubbleSizePx / 3).coerceAtLeast((24 * density).toInt()),
-                visibleFraction = 0.5f
+                leftInset = leftInset,
+                rightInset = rightInset
             )
 
             params.x = resolvedPosition.x
             params.y = resolvedPosition.y
             lastFabX = params.x
             lastFabY = params.y
-            windowManager?.updateViewLayout(frameLayout, params)
+            applyLayoutUpdate()
+        }
+
+        // Ao ser pressionado por > 2s em estado acolhido: desacolhe e fica 100% visível na área segura
+        fun handleLongPressUndock() {
+            if (FloatingDockCalculator.isPositionDocked(
+                    currentX = params.x,
+                    currentY = params.y,
+                    bubbleWidth = bubbleSizePx,
+                    bubbleHeight = bubbleSizePx,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight,
+                    topInset = topInset,
+                    bottomInset = bottomInset,
+                    leftInset = leftInset,
+                    rightInset = rightInset
+                )
+            ) {
+                val (newX, newY) = FloatingDockCalculator.undockPosition(
+                    currentX = params.x,
+                    currentY = params.y,
+                    bubbleWidth = bubbleSizePx,
+                    bubbleHeight = bubbleSizePx,
+                    screenWidth = screenWidth,
+                    screenHeight = screenHeight,
+                    marginPx = (20 * density).toInt(),
+                    topInset = topInset,
+                    bottomInset = bottomInset,
+                    leftInset = leftInset,
+                    rightInset = rightInset
+                )
+                params.x = newX
+                params.y = newY
+                lastFabX = params.x
+                lastFabY = params.y
+                applyLayoutUpdate()
+            }
         }
 
         // Configuração de LayoutParams ao alternar entre minimizado (bolha) e expandido (janela)
@@ -232,13 +312,19 @@ fun FloatingWindowContent(
                 params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
                 params.width = WindowManager.LayoutParams.WRAP_CONTENT
                 params.height = WindowManager.LayoutParams.WRAP_CONTENT
                 params.gravity = Gravity.TOP or Gravity.START
                 params.x = lastFabX
                 params.y = lastFabY
-                windowManager?.updateViewLayout(frameLayout, params)
+                applyLayoutUpdate()
             } else {
                 params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -309,6 +395,9 @@ fun FloatingWindowContent(
                         isMinimized = false
                     },
                     onCheckClipboard = onCheckClipboard,
+                    onLongPressUndock = {
+                        handleLongPressUndock()
+                    },
                     onDragDelta = { dx, dy ->
                         val (clampedX, clampedY) = FloatingDockCalculator.clampDragPosition(
                             newX = params.x + dx.toInt(),
@@ -318,14 +407,16 @@ fun FloatingWindowContent(
                             screenWidth = screenWidth,
                             screenHeight = screenHeight,
                             topInset = topInset,
-                            bottomInset = bottomInset
+                            bottomInset = bottomInset,
+                            leftInset = leftInset,
+                            rightInset = rightInset
                         )
 
                         params.x = clampedX
                         params.y = clampedY
                         lastFabX = params.x
                         lastFabY = params.y
-                        windowManager?.updateViewLayout(frameLayout, params)
+                        applyLayoutUpdate()
                     },
                     onDragEnd = {
                         handleDragRelease()
@@ -355,6 +446,7 @@ fun FloatingWindowContent(
                     onTargetLanguageChange = { viewModel.setTargetLanguage(it) },
                     onSearchWord = { viewModel.showBottomSheet(it) },
                     onResetToSearch = { viewModel.resetToSearch() },
+                    onRetrySearch = { viewModel.retryLastSearch() },
                     onToggleFavorite = { word, def -> viewModel.toggleFavorite(word, def) },
                     onDismissCopiedText = { detectedCopiedTextFlow.value = null },
                     onEnsureFocusable = { ensureFocusable() },
